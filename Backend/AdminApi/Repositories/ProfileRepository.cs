@@ -51,15 +51,14 @@ public class ProfileRepository : BaseRepository, IProfileRepository
         parameters.Add("AuthSecretRef", profile.AuthSecretRef);
         parameters.Add("SecurityMode", profile.SecurityMode);
         parameters.Add("IsActive", profile.IsActive);
-        parameters.Add("ProfileId", dbType: DbType.Int32, direction: ParameterDirection.ReturnValue);
 
-        await connection.ExecuteAsync(
+        var result = await connection.QuerySingleOrDefaultAsync<int?>(
             "csp_MailProfile_AddNew",
             parameters,
             commandType: CommandType.StoredProcedure
         );
 
-        return parameters.Get<int>("ProfileId");
+        return result ?? 0;
     }
 
     public async Task UpdateAsync(ProfileUpdateDto profile)

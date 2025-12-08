@@ -46,15 +46,14 @@ public class TemplateRepository : BaseRepository, ITemplateRepository
         parameters.Add("Lang_Code", template.Lang_Code);
         parameters.Add("Subject", template.Subject);
         parameters.Add("Body", template.Body);
-        parameters.Add("ET_ID", dbType: DbType.Int32, direction: ParameterDirection.ReturnValue);
 
-        await connection.ExecuteAsync(
+        var result = await connection.QuerySingleOrDefaultAsync<int?>(
             "csp_Email_Templates_AddNew",
             parameters,
             commandType: CommandType.StoredProcedure
         );
 
-        return parameters.Get<int>("ET_ID");
+        return result ?? 0;
     }
 
     public async Task UpdateAsync(EmailTemplateUpdateDto template)

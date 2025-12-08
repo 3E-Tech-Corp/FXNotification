@@ -44,15 +44,15 @@ public class ApplicationRepository : BaseRepository, IApplicationRepository
         parameters.Add("App_Code", app.App_Code);
         parameters.Add("Descr", app.Descr);
         parameters.Add("ProfileID", app.ProfileID);
-        parameters.Add("App_ID", dbType: DbType.Int32, direction: ParameterDirection.ReturnValue);
 
-        await connection.ExecuteAsync(
+        // Try to get the ID from the stored procedure result (via SELECT)
+        var result = await connection.QuerySingleOrDefaultAsync<int?>(
             "csp_Apps_Add",
             parameters,
             commandType: CommandType.StoredProcedure
         );
 
-        return parameters.Get<int>("App_ID");
+        return result ?? 0;
     }
 
     public async Task UpdateAsync(ApplicationUpdateDto app)

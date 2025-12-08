@@ -59,15 +59,14 @@ public class TaskRepository : BaseRepository, ITaskRepository
         parameters.Add("MailCC", task.MailCC);
         parameters.Add("MailBCC", task.MailBCC);
         parameters.Add("AttachmentProcName", task.AttachmentProcName);
-        parameters.Add("Task_ID", dbType: DbType.Int32, direction: ParameterDirection.ReturnValue);
 
-        await connection.ExecuteAsync(
+        var result = await connection.QuerySingleOrDefaultAsync<int?>(
             "csp_Tasks_AddNew",
             parameters,
             commandType: CommandType.StoredProcedure
         );
 
-        return parameters.Get<int>("Task_ID");
+        return result ?? 0;
     }
 
     public async Task UpdateAsync(TaskUpdateDto task)
