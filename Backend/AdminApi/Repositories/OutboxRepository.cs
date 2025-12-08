@@ -69,12 +69,10 @@ public class OutboxRepository : BaseRepository, IOutboxRepository
     public async Task RetryAsync(int id)
     {
         using var connection = CreateConnection();
-        // Reset the item for retry - set status back to Pending and reset NextAttemptAt
         await connection.ExecuteAsync(
-            @"UPDATE EmailOutbox
-              SET Status = 'P', NextAttemptAt = GETDATE(), Attempts = 0
-              WHERE ID = @Id",
-            new { Id = id }
+            "csp_History_Retry",
+            new { Id = id },
+            commandType: CommandType.StoredProcedure
         );
     }
 }
