@@ -27,10 +27,12 @@ export default function TemplatesPage() {
 
   const appOptions: SelectOption[] = [
     { Value: '', Text: 'All Applications' },
-    ...applications.map((app: Application) => ({
-      Value: app.App_ID.toString(),
-      Text: app.App_Code,
-    })),
+    ...applications
+      .filter((app: Application) => app.App_ID != null)
+      .map((app: Application) => ({
+        Value: app.App_ID.toString(),
+        Text: app.App_Code || '',
+      })),
   ];
 
   const createMutation = useMutation({

@@ -24,10 +24,12 @@ export default function OutboxPage() {
     queryFn: () => tasksApi.getAll(),
   });
 
-  const taskOptions: SelectOption[] = tasks.map((t: Task) => ({
-    Value: t.Task_ID.toString(),
-    Text: t.TaskCode,
-  }));
+  const taskOptions: SelectOption[] = tasks
+    .filter((t: Task) => t.Task_ID != null)
+    .map((t: Task) => ({
+      Value: t.Task_ID.toString(),
+      Text: t.TaskCode || '',
+    }));
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: number; data: Partial<OutboxItem> }) =>

@@ -37,21 +37,27 @@ export default function TasksPage() {
 
   const appOptions: SelectOption[] = [
     { Value: '', Text: 'All Applications' },
-    ...applications.map((app: Application) => ({
-      Value: app.App_ID.toString(),
-      Text: app.App_Code,
-    })),
+    ...applications
+      .filter((app: Application) => app.App_ID != null)
+      .map((app: Application) => ({
+        Value: app.App_ID.toString(),
+        Text: app.App_Code || '',
+      })),
   ];
 
-  const profileOptions: SelectOption[] = profiles.map((p: Profile) => ({
-    Value: p.ProfileId.toString(),
-    Text: p.ProfileCode,
-  }));
+  const profileOptions: SelectOption[] = profiles
+    .filter((p: Profile) => p.ProfileId != null)
+    .map((p: Profile) => ({
+      Value: p.ProfileId.toString(),
+      Text: p.ProfileCode || '',
+    }));
 
-  const templateOptions: SelectOption[] = templates.map((t: EmailTemplate) => ({
-    Value: t.ET_ID.toString(),
-    Text: t.ET_Code,
-  }));
+  const templateOptions: SelectOption[] = templates
+    .filter((t: EmailTemplate) => t.ET_ID != null)
+    .map((t: EmailTemplate) => ({
+      Value: t.ET_ID.toString(),
+      Text: t.ET_Code || '',
+    }));
 
   const createMutation = useMutation({
     mutationFn: (data: Omit<Task, 'Task_ID'>) => tasksApi.create(data),

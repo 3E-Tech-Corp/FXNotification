@@ -22,10 +22,12 @@ export default function ApplicationsPage() {
     queryFn: profilesApi.getAll,
   });
 
-  const profileOptions: SelectOption[] = profiles.map((p: Profile) => ({
-    Value: p.ProfileId.toString(),
-    Text: p.ProfileCode,
-  }));
+  const profileOptions: SelectOption[] = profiles
+    .filter((p: Profile) => p.ProfileId != null)
+    .map((p: Profile) => ({
+      Value: p.ProfileId.toString(),
+      Text: p.ProfileCode || '',
+    }));
 
   const createMutation = useMutation({
     mutationFn: (data: Omit<Application, 'App_ID'>) => applicationsApi.create(data),
