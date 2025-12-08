@@ -1,0 +1,10 @@
+﻿sc.exe delete "FX_Notify"
+
+sc.exe queryex FX_Notify
+
+New-Service `
+  -Name "FX_Notify" `
+  -BinaryPathName "D:\Feng\_Deploy\FXEmail\EmailWorker.exe" `
+  -DisplayName "FX Email Notification Service" `
+  -Description "Feng Xiao's Processes for email and SMS notifications." `
+  -StartupType Automatic
