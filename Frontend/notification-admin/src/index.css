@@ -1,0 +1,75 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #3b82f6;
+  --color-primary-hover: #2563eb;
+  --color-secondary: #64748b;
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-error: #ef4444;
+  --color-background: #f8fafc;
+  --color-surface: #ffffff;
+  --color-border: #e2e8f0;
+  --color-text: #1e293b;
+  --color-text-muted: #64748b;
+}
+
+body {
+  @apply bg-background text-text font-sans antialiased m-0;
+}
+
+#root {
+  @apply min-h-screen;
+}
+
+/* TipTap Editor Styles */
+.tiptap {
+  @apply p-4 min-h-[300px] focus:outline-none;
+}
+
+.tiptap > * + * {
+  margin-top: 0.75em;
+}
+
+.tiptap ul,
+.tiptap ol {
+  padding: 0 1rem;
+}
+
+.tiptap h1,
+.tiptap h2,
+.tiptap h3,
+.tiptap h4,
+.tiptap h5,
+.tiptap h6 {
+  line-height: 1.1;
+}
+
+.tiptap p.is-editor-empty:first-child::before {
+  @apply text-gray-400 float-left h-0 pointer-events-none;
+  content: attr(data-placeholder);
+}
+
+/* Table Styles */
+.data-table {
+  @apply w-full border-collapse;
+}
+
+.data-table th {
+  @apply bg-gray-50 px-4 py-3 text-left text-sm font-semibold text-gray-900 border-b border-gray-200;
+}
+
+.data-table td {
+  @apply px-4 py-3 text-sm text-gray-700 border-b border-gray-100;
+}
+
+.data-table tr:hover td {
+  @apply bg-blue-50;
+}
+
+/* Form styles */
+input:focus,
+select:focus,
+textarea:focus {
+  @apply outline-none ring-2 ring-primary/50;
+}
