@@ -1,9 +1,11 @@
-﻿
+
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.14.36310.24
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EmailWorker", "EmailWorker.csproj", "{3162CA37-86CE-C937-86A6-EF65B6AE0367}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EmailWorker", "Backend\API\EmailWorker.csproj", "{3162CA37-86CE-C937-86A6-EF65B6AE0367}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AdminApi", "Backend\AdminApi\AdminApi.csproj", "{B5A8E1F2-4C3D-5E6F-7A8B-9C0D1E2F3A4B}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Backend", "Backend", "{02EA681E-C7D8-13C7-8484-4AC65E1B71E8}"
 EndProject
@@ -11,8 +13,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Frontend", "Frontend", "{AF
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "OldCode", "OldCode", "{90D1292D-745C-4122-929E-5B7BA1DE8AAA}"
 	ProjectSection(SolutionItems) = preProject
-		..\Play\Admin\EditTasks.aspx = ..\Play\Admin\EditTasks.aspx
-		..\Play\Admin\EditTasks.aspx.cs = ..\Play\Admin\EditTasks.aspx.cs
+		Frontend\OldCode\EditTasks.aspx = Frontend\OldCode\EditTasks.aspx
+		Frontend\OldCode\EditTasks.aspx.cs = Frontend\OldCode\EditTasks.aspx.cs
 	EndProjectSection
 EndProject
 Global
@@ -25,12 +27,17 @@ Global
 		{3162CA37-86CE-C937-86A6-EF65B6AE0367}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{3162CA37-86CE-C937-86A6-EF65B6AE0367}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{3162CA37-86CE-C937-86A6-EF65B6AE0367}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B5A8E1F2-4C3D-5E6F-7A8B-9C0D1E2F3A4B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B5A8E1F2-4C3D-5E6F-7A8B-9C0D1E2F3A4B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B5A8E1F2-4C3D-5E6F-7A8B-9C0D1E2F3A4B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B5A8E1F2-4C3D-5E6F-7A8B-9C0D1E2F3A4B}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{3162CA37-86CE-C937-86A6-EF65B6AE0367} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
+		{B5A8E1F2-4C3D-5E6F-7A8B-9C0D1E2F3A4B} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
 		{90D1292D-745C-4122-929E-5B7BA1DE8AAA} = {AFFB702E-7803-4C6E-86D9-E5C79437592E}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
