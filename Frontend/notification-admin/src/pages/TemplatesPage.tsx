@@ -1,39 +1,31 @@
 import { useState } from 'react';
+import { Navigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { ColumnDef } from '@tanstack/react-table';
 import { Pencil, Trash2 } from 'lucide-react';
-import { templatesApi, applicationsApi } from '@/api';
-import type { EmailTemplate, Application, SelectOption } from '@/types';
-import { DataGrid, Button, Modal, Input, Select } from '@/components/ui';
+import { templatesApi } from '@/api';
+import type { EmailTemplate } from '@/types';
+import { DataGrid, Button, Modal, Input } from '@/components/ui';
 import RichTextEditor from '@/components/RichTextEditor';
 import { truncateText } from '@/lib/utils';
+import { useApp } from '@/context/AppContext';
 
 export default function TemplatesPage() {
   const queryClient = useQueryClient();
+  const { selectedApp } = useApp();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<EmailTemplate | null>(null);
   const [formData, setFormData] = useState<Partial<EmailTemplate>>({});
-  const [selectedAppId, setSelectedAppId] = useState<number | undefined>(undefined);
 
-  const { data: applications = [] } = useQuery({
-    queryKey: ['applications'],
-    queryFn: applicationsApi.getAll,
-  });
+  // Redirect to applications if no app selected
+  if (!selectedApp) {
+    return <Navigate to="/applications" replace />;
+  }
 
   const { data: templates = [], isLoading } = useQuery({
-    queryKey: ['templates', selectedAppId],
-    queryFn: () => templatesApi.getAll(selectedAppId),
+    queryKey: ['templates', selectedApp.App_ID],
+    queryFn: () => templatesApi.getAll(selectedApp.App_ID),
   });
-
-  const appOptions: SelectOption[] = [
-    { Value: '', Text: 'All Applications' },
-    ...applications
-      .filter((app: Application) => app.App_ID != null)
-      .map((app: Application) => ({
-        Value: app.App_ID.toString(),
-        Text: app.App_Code || '',
-      })),
-  ];
 
   const createMutation = useMutation({
     mutationFn: (data: Omit<EmailTemplate, 'ET_ID'>) => templatesApi.create(data),
@@ -151,20 +143,11 @@ export default function TemplatesPage() {
 
   return (
     <div>
-      <div className="mb-6 flex justify-between items-start">
-        <div>
-          <h2 className="text-lg font-medium text-gray-900">Email Templates</h2>
-          <p className="text-sm text-gray-500">Manage email templates with Scriban syntax</p>
-        </div>
-        <div className="w-64">
-          <Select
-            options={appOptions}
-            value={selectedAppId?.toString() || ''}
-            onChange={(e) =>
-              setSelectedAppId(e.target.value ? parseInt(e.target.value) : undefined)
-            }
-          />
-        </div>
+      <div className="mb-6">
+        <h2 className="text-lg font-medium text-gray-900">Email Templates</h2>
+        <p className="text-sm text-gray-500">
+          Manage email templates for <span className="font-medium">{selectedApp.App_Code}</span> using Scriban syntax
+        </p>
       </div>
 
       <DataGrid

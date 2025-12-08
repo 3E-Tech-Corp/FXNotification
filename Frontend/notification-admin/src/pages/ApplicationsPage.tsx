@@ -1,13 +1,17 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { ColumnDef } from '@tanstack/react-table';
-import { Pencil, Trash2 } from 'lucide-react';
+import { Pencil, Trash2, CheckCircle, ArrowRight } from 'lucide-react';
 import { applicationsApi, profilesApi } from '@/api';
 import type { Application, Profile, SelectOption } from '@/types';
 import { DataGrid, Button, Modal, Input, Select } from '@/components/ui';
+import { useApp } from '@/context/AppContext';
 
 export default function ApplicationsPage() {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { selectedApp, setSelectedApp } = useApp();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingApp, setEditingApp] = useState<Application | null>(null);
   const [formData, setFormData] = useState<Partial<Application>>({});
@@ -89,7 +93,42 @@ export default function ApplicationsPage() {
     }
   };
 
+  const handleSelectApp = (app: Application) => {
+    setSelectedApp(app);
+    navigate('/templates');
+  };
+
   const columns: ColumnDef<Application, unknown>[] = [
+    {
+      id: 'select',
+      header: '',
+      size: 120,
+      cell: ({ row }) => {
+        const isSelected = selectedApp?.App_ID === row.original.App_ID;
+        return (
+          <button
+            onClick={() => handleSelectApp(row.original)}
+            className={`flex items-center gap-1 px-3 py-1.5 rounded text-sm font-medium transition-colors ${
+              isSelected
+                ? 'bg-green-100 text-green-700'
+                : 'bg-blue-50 text-blue-600 hover:bg-blue-100'
+            }`}
+          >
+            {isSelected ? (
+              <>
+                <CheckCircle className="h-4 w-4" />
+                Selected
+              </>
+            ) : (
+              <>
+                <ArrowRight className="h-4 w-4" />
+                Select
+              </>
+            )}
+          </button>
+        );
+      },
+    },
     {
       id: 'actions',
       header: '',
@@ -140,7 +179,10 @@ export default function ApplicationsPage() {
     <div>
       <div className="mb-6">
         <h2 className="text-lg font-medium text-gray-900">Applications</h2>
-        <p className="text-sm text-gray-500">Manage applications that use the notification system</p>
+        <p className="text-sm text-gray-500">
+          Select an application to manage its templates, tasks, and messages.
+          Click "Select" to work with an application.
+        </p>
       </div>
 
       <DataGrid

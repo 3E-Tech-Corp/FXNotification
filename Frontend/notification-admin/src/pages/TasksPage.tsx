@@ -1,24 +1,26 @@
 import { useState } from 'react';
+import { Navigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { ColumnDef } from '@tanstack/react-table';
 import { Pencil, Trash2 } from 'lucide-react';
-import { tasksApi, applicationsApi, profilesApi, templatesApi } from '@/api';
-import type { Task, Application, Profile, EmailTemplate, SelectOption } from '@/types';
+import { tasksApi, profilesApi, templatesApi } from '@/api';
+import type { Task, Profile, EmailTemplate, SelectOption } from '@/types';
 import { TaskStatuses, TaskTypes, MailPriorities } from '@/types';
 import { DataGrid, Button, Modal, Input, Select, Badge } from '@/components/ui';
 import { getStatusColor } from '@/lib/utils';
+import { useApp } from '@/context/AppContext';
 
 export default function TasksPage() {
   const queryClient = useQueryClient();
+  const { selectedApp } = useApp();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [formData, setFormData] = useState<Partial<Task>>({});
-  const [selectedAppId, setSelectedAppId] = useState<number | undefined>(undefined);
 
-  const { data: applications = [] } = useQuery({
-    queryKey: ['applications'],
-    queryFn: applicationsApi.getAll,
-  });
+  // Redirect to applications if no app selected
+  if (!selectedApp) {
+    return <Navigate to="/applications" replace />;
+  }
 
   const { data: profiles = [] } = useQuery({
     queryKey: ['profiles'],
@@ -26,24 +28,14 @@ export default function TasksPage() {
   });
 
   const { data: templates = [] } = useQuery({
-    queryKey: ['templates', selectedAppId],
-    queryFn: () => templatesApi.getAll(selectedAppId),
+    queryKey: ['templates', selectedApp.App_ID],
+    queryFn: () => templatesApi.getAll(selectedApp.App_ID),
   });
 
   const { data: tasks = [], isLoading } = useQuery({
-    queryKey: ['tasks', selectedAppId],
-    queryFn: () => tasksApi.getAll(selectedAppId),
+    queryKey: ['tasks', selectedApp.App_ID],
+    queryFn: () => tasksApi.getAll(selectedApp.App_ID),
   });
-
-  const appOptions: SelectOption[] = [
-    { Value: '', Text: 'All Applications' },
-    ...applications
-      .filter((app: Application) => app.App_ID != null)
-      .map((app: Application) => ({
-        Value: app.App_ID.toString(),
-        Text: app.App_Code || '',
-      })),
-  ];
 
   const profileOptions: SelectOption[] = profiles
     .filter((p: Profile) => p.ProfileId != null)
@@ -100,7 +92,7 @@ export default function TasksPage() {
       MailCC: '',
       MailBCC: '',
       AttachmentProcName: '',
-      App_ID: selectedAppId,
+      App_ID: selectedApp.App_ID,
     });
     setIsModalOpen(true);
   };
@@ -213,20 +205,11 @@ export default function TasksPage() {
 
   return (
     <div>
-      <div className="mb-6 flex justify-between items-start">
-        <div>
-          <h2 className="text-lg font-medium text-gray-900">Notification Tasks</h2>
-          <p className="text-sm text-gray-500">Configure email/SMS notification tasks</p>
-        </div>
-        <div className="w-64">
-          <Select
-            options={appOptions}
-            value={selectedAppId?.toString() || ''}
-            onChange={(e) =>
-              setSelectedAppId(e.target.value ? parseInt(e.target.value) : undefined)
-            }
-          />
-        </div>
+      <div className="mb-6">
+        <h2 className="text-lg font-medium text-gray-900">Notification Tasks</h2>
+        <p className="text-sm text-gray-500">
+          Configure email/SMS notification tasks for <span className="font-medium">{selectedApp.App_Code}</span>
+        </p>
       </div>
 
       <DataGrid
