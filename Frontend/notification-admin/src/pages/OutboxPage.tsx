@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { Navigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { ColumnDef } from '@tanstack/react-table';
 import { RefreshCw, Pencil, Trash2 } from 'lucide-react';
@@ -17,19 +16,14 @@ export default function OutboxPage() {
   const [editingItem, setEditingItem] = useState<OutboxItem | null>(null);
   const [formData, setFormData] = useState<Partial<OutboxItem>>({});
 
-  // Redirect to applications if no app selected
-  if (!selectedApp) {
-    return <Navigate to="/applications" replace />;
-  }
-
   const { data: outbox = [], isLoading } = useQuery({
     queryKey: ['outbox'],
     queryFn: outboxApi.getAll,
   });
 
   const { data: tasks = [] } = useQuery({
-    queryKey: ['tasks', selectedApp.App_ID],
-    queryFn: () => tasksApi.getAll(selectedApp.App_ID),
+    queryKey: ['tasks', selectedApp?.App_ID],
+    queryFn: () => tasksApi.getAll(selectedApp?.App_ID),
   });
 
   const taskOptions: SelectOption[] = tasks
@@ -189,7 +183,10 @@ export default function OutboxPage() {
       <div className="mb-6">
         <h2 className="text-lg font-medium text-gray-900">Outbox</h2>
         <p className="text-sm text-gray-500">
-          View and manage pending emails for <span className="font-medium">{selectedApp.App_Code}</span>
+          {selectedApp
+            ? <>View and manage pending emails for <span className="font-medium">{selectedApp.App_Code}</span></>
+            : 'View and manage pending emails for all applications'
+          }
         </p>
       </div>
 

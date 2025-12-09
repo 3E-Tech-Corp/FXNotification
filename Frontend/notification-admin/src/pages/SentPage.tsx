@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { Navigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { ColumnDef } from '@tanstack/react-table';
 import { RefreshCw } from 'lucide-react';
@@ -15,11 +14,6 @@ export default function SentPage() {
   const queryClient = useQueryClient();
   const { selectedApp } = useApp();
   const [selectedEmailId, setSelectedEmailId] = useState<number | null>(null);
-
-  // Redirect to applications if no app selected
-  if (!selectedApp) {
-    return <Navigate to="/applications" replace />;
-  }
 
   const { data: history = [], isLoading } = useQuery({
     queryKey: ['history'],
@@ -97,7 +91,10 @@ export default function SentPage() {
       <div className="mb-6">
         <h2 className="text-lg font-medium text-gray-900">Sent Emails</h2>
         <p className="text-sm text-gray-500">
-          View email history and audit trail for <span className="font-medium">{selectedApp.App_Code}</span>
+          {selectedApp
+            ? <>View email history and audit trail for <span className="font-medium">{selectedApp.App_Code}</span></>
+            : 'View email history and audit trail for all applications'
+          }
         </p>
       </div>
 

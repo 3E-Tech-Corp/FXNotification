@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { useApp } from '@/context/AppContext';
 import {
@@ -28,9 +28,7 @@ const globalTabs = [
 
 export default function Layout() {
   const { selectedApp, setSelectedApp } = useApp();
-  const location = useLocation();
   const navigate = useNavigate();
-  const isOnAppPage = location.pathname === '/applications';
 
   const handleClearApp = () => {
     setSelectedApp(null);
@@ -100,30 +98,13 @@ export default function Layout() {
             })}
 
             {/* Separator */}
-            {selectedApp && (
-              <div className="flex items-center text-gray-300">
-                <ChevronRight className="h-4 w-4" />
-              </div>
-            )}
+            <div className="flex items-center text-gray-300">
+              <ChevronRight className="h-4 w-4" />
+            </div>
 
-            {/* App-specific tabs (only shown when app is selected) */}
+            {/* App-specific tabs (always enabled) */}
             {appRequiredTabs.map((tab) => {
               const Icon = tab.icon;
-              const isDisabled = !selectedApp;
-
-              if (isDisabled) {
-                return (
-                  <span
-                    key={tab.name}
-                    className="flex items-center gap-2 py-3 px-1 border-b-2 border-transparent font-medium text-sm text-gray-300 cursor-not-allowed"
-                    title="Select an application first"
-                  >
-                    <Icon className="h-4 w-4" />
-                    {tab.name}
-                  </span>
-                );
-              }
-
               return (
                 <NavLink
                   key={tab.name}
@@ -145,21 +126,6 @@ export default function Layout() {
           </nav>
         </div>
       </header>
-
-      {/* Prompt to select application */}
-      {!selectedApp && !isOnAppPage && location.pathname !== '/profiles' && (
-        <div className="bg-yellow-50 border-b border-yellow-200">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
-            <p className="text-sm text-yellow-800">
-              Please select an application from the{' '}
-              <NavLink to="/applications" className="font-medium underline">
-                Applications
-              </NavLink>{' '}
-              page to manage templates, tasks, and messages.
-            </p>
-          </div>
-        </div>
-      )}
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
