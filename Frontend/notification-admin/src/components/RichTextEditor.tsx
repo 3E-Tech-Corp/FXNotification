@@ -21,9 +21,10 @@ import {
   Undo,
   Redo,
   Code,
+  FileCode,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 
 interface RichTextEditorProps {
   content: string;
@@ -37,6 +38,9 @@ export default function RichTextEditor({
   onChange,
   className,
 }: RichTextEditorProps) {
+  const [isHtmlMode, setIsHtmlMode] = useState(false);
+  const [htmlContent, setHtmlContent] = useState(content);
+
   const editor = useEditor({
     extensions: [
       StarterKit,
@@ -73,7 +77,30 @@ export default function RichTextEditor({
     if (editor && content !== editor.getHTML()) {
       editor.commands.setContent(content);
     }
+    setHtmlContent(content);
   }, [content, editor]);
+
+  const toggleHtmlMode = () => {
+    if (isHtmlMode) {
+      // Switching from HTML to WYSIWYG - apply HTML changes
+      if (editor) {
+        editor.commands.setContent(htmlContent);
+      }
+      onChange(htmlContent);
+    } else {
+      // Switching to HTML mode - get current content
+      if (editor) {
+        setHtmlContent(editor.getHTML());
+      }
+    }
+    setIsHtmlMode(!isHtmlMode);
+  };
+
+  const handleHtmlChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const newHtml = e.target.value;
+    setHtmlContent(newHtml);
+    onChange(newHtml);
+  };
 
   if (!editor) {
     return null;
@@ -221,10 +248,29 @@ export default function RichTextEditor({
         >
           <Redo className="h-4 w-4" />
         </ToolbarButton>
+
+        <div className="flex-1" />
+
+        <ToolbarButton
+          onClick={toggleHtmlMode}
+          isActive={isHtmlMode}
+          title={isHtmlMode ? 'Switch to Visual Editor' : 'Edit HTML Source'}
+        >
+          <FileCode className="h-4 w-4" />
+        </ToolbarButton>
       </div>
 
-      {/* Editor */}
-      <EditorContent editor={editor} />
+      {/* Editor or HTML Source */}
+      {isHtmlMode ? (
+        <textarea
+          value={htmlContent}
+          onChange={handleHtmlChange}
+          className="w-full min-h-[300px] p-4 font-mono text-sm border-0 focus:outline-none focus:ring-0 resize-y"
+          placeholder="Enter HTML here..."
+        />
+      ) : (
+        <EditorContent editor={editor} />
+      )}
     </div>
   );
 }

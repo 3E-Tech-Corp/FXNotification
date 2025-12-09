@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { useApp } from '@/context/AppContext';
 import {
@@ -9,6 +9,7 @@ import {
   Inbox,
   Send,
   ChevronRight,
+  X,
 } from 'lucide-react';
 
 // Tabs that require an application to be selected
@@ -26,9 +27,15 @@ const globalTabs = [
 ];
 
 export default function Layout() {
-  const { selectedApp } = useApp();
+  const { selectedApp, setSelectedApp } = useApp();
   const location = useLocation();
+  const navigate = useNavigate();
   const isOnAppPage = location.pathname === '/applications';
+
+  const handleClearApp = () => {
+    setSelectedApp(null);
+    navigate('/applications');
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -46,12 +53,24 @@ export default function Layout() {
             </div>
 
             {/* Selected Application Indicator */}
-            {selectedApp && (
+            {selectedApp ? (
               <div className="flex items-center gap-2 bg-blue-50 text-blue-700 px-4 py-2 rounded-lg">
                 <AppWindow className="h-4 w-4" />
                 <span className="text-sm font-medium">
                   Working with: <span className="font-bold">{selectedApp.App_Code}</span>
                 </span>
+                <button
+                  onClick={handleClearApp}
+                  className="ml-2 p-1 hover:bg-blue-100 rounded transition-colors"
+                  title="Switch to All Applications"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 bg-gray-100 text-gray-600 px-4 py-2 rounded-lg">
+                <AppWindow className="h-4 w-4" />
+                <span className="text-sm font-medium">All Applications</span>
               </div>
             )}
           </div>
