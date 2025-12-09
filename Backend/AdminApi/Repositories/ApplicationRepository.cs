@@ -75,8 +75,9 @@ public class ApplicationRepository : BaseRepository, IApplicationRepository
     {
         using var connection = CreateConnection();
         await connection.ExecuteAsync(
-            "DELETE FROM Applications WHERE App_ID = @App_ID",
-            new { App_ID = id }
+            "csp_Apps_Delete",
+            new { App_ID = id },
+            commandType: CommandType.StoredProcedure
         );
     }
 }

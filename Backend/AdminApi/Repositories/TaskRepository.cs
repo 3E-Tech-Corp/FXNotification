@@ -100,8 +100,9 @@ public class TaskRepository : BaseRepository, ITaskRepository
     {
         using var connection = CreateConnection();
         await connection.ExecuteAsync(
-            "DELETE FROM Tasks WHERE Task_ID = @Task_ID",
-            new { Task_ID = id }
+            "csp_Tasks_Delete",
+            new { Task_ID = id },
+            commandType: CommandType.StoredProcedure
         );
     }
 }
