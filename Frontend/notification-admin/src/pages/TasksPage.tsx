@@ -3,8 +3,8 @@ import { Navigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { ColumnDef } from '@tanstack/react-table';
 import { Pencil, Trash2 } from 'lucide-react';
-import { tasksApi, profilesApi, templatesApi } from '@/api';
-import type { Task, Profile, EmailTemplate, SelectOption } from '@/types';
+import { tasksApi, profilesApi, templatesApi, applicationsApi } from '@/api';
+import type { Task, Profile, EmailTemplate, Application, SelectOption } from '@/types';
 import { TaskStatuses, TaskTypes, MailPriorities } from '@/types';
 import { DataGrid, Button, Modal, Input, Select, Badge } from '@/components/ui';
 import { getStatusColor } from '@/lib/utils';
@@ -22,6 +22,11 @@ export default function TasksPage() {
     return <Navigate to="/applications" replace />;
   }
 
+  const { data: applications = [] } = useQuery({
+    queryKey: ['applications'],
+    queryFn: applicationsApi.getAll,
+  });
+
   const { data: profiles = [] } = useQuery({
     queryKey: ['profiles'],
     queryFn: profilesApi.getAll,
@@ -36,6 +41,16 @@ export default function TasksPage() {
     queryKey: ['tasks', selectedApp.App_ID],
     queryFn: () => tasksApi.getAll(selectedApp.App_ID),
   });
+
+  const appOptions: SelectOption[] = [
+    { Value: '', Text: '(Shared - No Application)' },
+    ...applications
+      .filter((app: Application) => app.App_ID != null)
+      .map((app: Application) => ({
+        Value: app.App_ID.toString(),
+        Text: app.App_Code || '',
+      })),
+  ];
 
   const profileOptions: SelectOption[] = profiles
     .filter((p: Profile) => p.ProfileId != null)
@@ -244,6 +259,14 @@ export default function TasksPage() {
             label="Task Code"
             value={formData.TaskCode || ''}
             onChange={(e) => setFormData({ ...formData, TaskCode: e.target.value })}
+          />
+          <Select
+            label="Application"
+            options={appOptions}
+            value={formData.App_ID?.toString() || ''}
+            onChange={(e) =>
+              setFormData({ ...formData, App_ID: e.target.value ? parseInt(e.target.value) : undefined })
+            }
           />
           <Select
             label="Status"

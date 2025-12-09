@@ -46,6 +46,7 @@ public class TemplateRepository : BaseRepository, ITemplateRepository
         parameters.Add("Lang_Code", template.Lang_Code);
         parameters.Add("Subject", template.Subject);
         parameters.Add("Body", template.Body);
+        parameters.Add("App_ID", template.App_ID);
 
         var result = await connection.QuerySingleOrDefaultAsync<int?>(
             "csp_Email_Templates_AddNew",
@@ -67,7 +68,8 @@ public class TemplateRepository : BaseRepository, ITemplateRepository
                 template.ET_Code,
                 template.Lang_Code,
                 template.Subject,
-                template.Body
+                template.Body,
+                template.App_ID
             },
             commandType: CommandType.StoredProcedure
         );

@@ -3,9 +3,9 @@ import { Navigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { ColumnDef } from '@tanstack/react-table';
 import { Pencil, Trash2 } from 'lucide-react';
-import { templatesApi } from '@/api';
-import type { EmailTemplate } from '@/types';
-import { DataGrid, Button, Modal, Input } from '@/components/ui';
+import { templatesApi, applicationsApi } from '@/api';
+import type { EmailTemplate, Application, SelectOption } from '@/types';
+import { DataGrid, Button, Modal, Input, Select } from '@/components/ui';
 import RichTextEditor from '@/components/RichTextEditor';
 import { truncateText } from '@/lib/utils';
 import { useApp } from '@/context/AppContext';
@@ -22,10 +22,25 @@ export default function TemplatesPage() {
     return <Navigate to="/applications" replace />;
   }
 
+  const { data: applications = [] } = useQuery({
+    queryKey: ['applications'],
+    queryFn: applicationsApi.getAll,
+  });
+
   const { data: templates = [], isLoading } = useQuery({
     queryKey: ['templates', selectedApp.App_ID],
     queryFn: () => templatesApi.getAll(selectedApp.App_ID),
   });
+
+  const appOptions: SelectOption[] = [
+    { Value: '', Text: '(Shared - No Application)' },
+    ...applications
+      .filter((app: Application) => app.App_ID != null)
+      .map((app: Application) => ({
+        Value: app.App_ID.toString(),
+        Text: app.App_Code || '',
+      })),
+  ];
 
   const createMutation = useMutation({
     mutationFn: (data: Omit<EmailTemplate, 'ET_ID'>) => templatesApi.create(data),
@@ -58,6 +73,7 @@ export default function TemplatesPage() {
       Subject: '',
       Body: '',
       Lang_Code: 'en',
+      App_ID: selectedApp.App_ID,
     });
     setIsModalOpen(true);
   };
@@ -122,6 +138,11 @@ export default function TemplatesPage() {
       header: 'Template Code',
     },
     {
+      accessorKey: 'App_Code',
+      header: 'Application',
+      cell: ({ row }) => row.original.App_Code || '(Shared)',
+    },
+    {
       accessorKey: 'Lang_Code',
       header: 'Language',
       size: 80,
@@ -178,7 +199,7 @@ export default function TemplatesPage() {
         }
       >
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-3 gap-4">
             <Input
               label="Template Code"
               value={formData.ET_Code || ''}
@@ -189,6 +210,17 @@ export default function TemplatesPage() {
               value={formData.Lang_Code || ''}
               onChange={(e) => setFormData({ ...formData, Lang_Code: e.target.value })}
               placeholder="en, es, fr, etc."
+            />
+            <Select
+              label="Application"
+              options={appOptions}
+              value={formData.App_ID?.toString() || ''}
+              onChange={(e) =>
+                setFormData({
+                  ...formData,
+                  App_ID: e.target.value ? parseInt(e.target.value) : null,
+                })
+              }
             />
           </div>
           <Input

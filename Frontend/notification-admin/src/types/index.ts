@@ -27,6 +27,7 @@ export interface EmailTemplate {
   Lang_Code?: string;
   Subject: string;
   Body: string;
+  App_ID?: number | null;
   App_Code?: string;
 }
 

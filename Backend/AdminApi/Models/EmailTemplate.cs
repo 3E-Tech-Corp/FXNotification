@@ -7,6 +7,7 @@ public class EmailTemplate
     public string? Lang_Code { get; set; }
     public string? Subject { get; set; }
     public string? Body { get; set; }
+    public int? App_ID { get; set; }
     public string? App_Code { get; set; }
 }
 
@@ -16,6 +17,7 @@ public class EmailTemplateCreateDto
     public string? Lang_Code { get; set; } = "en";
     public string? Subject { get; set; }
     public string? Body { get; set; }
+    public int? App_ID { get; set; }
 }
 
 public class EmailTemplateUpdateDto : EmailTemplateCreateDto
