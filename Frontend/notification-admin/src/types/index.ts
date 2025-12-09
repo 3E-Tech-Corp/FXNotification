@@ -10,6 +10,8 @@ export interface Profile {
   AuthSecretRef: string;
   SecurityMode: string;
   IsActive: boolean;
+  App_ID?: number | null;
+  App_Code?: string;
 }
 
 // Application that uses the notification system

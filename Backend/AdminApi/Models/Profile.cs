@@ -12,6 +12,8 @@ public class Profile
     public string? AuthSecretRef { get; set; }
     public string SecurityMode { get; set; } = "0";
     public bool IsActive { get; set; }
+    public int? App_ID { get; set; }
+    public string? App_Code { get; set; }
 }
 
 public class ProfileCreateDto
@@ -25,6 +27,7 @@ public class ProfileCreateDto
     public string? AuthSecretRef { get; set; }
     public string SecurityMode { get; set; } = "1";
     public bool IsActive { get; set; } = true;
+    public int? App_ID { get; set; }
 }
 
 public class ProfileUpdateDto : ProfileCreateDto

@@ -51,6 +51,7 @@ public class ProfileRepository : BaseRepository, IProfileRepository
         parameters.Add("AuthSecretRef", profile.AuthSecretRef);
         parameters.Add("SecurityMode", profile.SecurityMode);
         parameters.Add("IsActive", profile.IsActive);
+        parameters.Add("App_ID", profile.App_ID);
 
         var result = await connection.QuerySingleOrDefaultAsync<int?>(
             "csp_MailProfile_AddNew",
@@ -77,7 +78,8 @@ public class ProfileRepository : BaseRepository, IProfileRepository
                 profile.AuthUser,
                 profile.AuthSecretRef,
                 profile.SecurityMode,
-                profile.IsActive
+                profile.IsActive,
+                profile.App_ID
             },
             commandType: CommandType.StoredProcedure
         );

@@ -2,8 +2,8 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { ColumnDef } from '@tanstack/react-table';
 import { Pencil, Trash2 } from 'lucide-react';
-import { profilesApi } from '@/api';
-import type { Profile } from '@/types';
+import { profilesApi, applicationsApi } from '@/api';
+import type { Profile, Application, SelectOption } from '@/types';
 import { SecurityModes, YesNoOptions } from '@/types';
 import { DataGrid, Button, Modal, Input, Select, Badge } from '@/components/ui';
 
@@ -13,10 +13,25 @@ export default function ProfilesPage() {
   const [editingProfile, setEditingProfile] = useState<Profile | null>(null);
   const [formData, setFormData] = useState<Partial<Profile>>({});
 
+  const { data: applications = [] } = useQuery({
+    queryKey: ['applications'],
+    queryFn: applicationsApi.getAll,
+  });
+
   const { data: profiles = [], isLoading } = useQuery({
     queryKey: ['profiles'],
     queryFn: profilesApi.getAll,
   });
+
+  const appOptions: SelectOption[] = [
+    { Value: '', Text: '(Shared - No Application)' },
+    ...applications
+      .filter((app: Application) => app.App_ID != null)
+      .map((app: Application) => ({
+        Value: app.App_ID.toString(),
+        Text: app.App_Code || '',
+      })),
+  ];
 
   const createMutation = useMutation({
     mutationFn: (data: Omit<Profile, 'ProfileId'>) => profilesApi.create(data),
@@ -118,6 +133,11 @@ export default function ProfilesPage() {
       header: 'Profile Code',
     },
     {
+      accessorKey: 'App_Code',
+      header: 'Application',
+      cell: ({ row }) => row.original.App_Code || '(Shared)',
+    },
+    {
       accessorKey: 'FromName',
       header: 'From Name',
     },
@@ -196,6 +216,17 @@ export default function ProfilesPage() {
             label="Profile Code"
             value={formData.ProfileCode || ''}
             onChange={(e) => setFormData({ ...formData, ProfileCode: e.target.value })}
+          />
+          <Select
+            label="Application"
+            options={appOptions}
+            value={formData.App_ID?.toString() || ''}
+            onChange={(e) =>
+              setFormData({
+                ...formData,
+                App_ID: e.target.value ? parseInt(e.target.value) : null,
+              })
+            }
           />
           <Input
             label="From Name"
