@@ -87,9 +87,8 @@ public class ProfileRepository : BaseRepository, IProfileRepository
     {
         using var connection = CreateConnection();
         await connection.ExecuteAsync(
-            "csp_MailProfile_Delete",
-            new { ProfileId = id },
-            commandType: CommandType.StoredProcedure
+            "DELETE FROM MailProfiles WHERE ProfileId = @ProfileId",
+            new { ProfileId = id }
         );
     }
 }

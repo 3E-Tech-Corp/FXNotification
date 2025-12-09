@@ -77,9 +77,8 @@ public class TemplateRepository : BaseRepository, ITemplateRepository
     {
         using var connection = CreateConnection();
         await connection.ExecuteAsync(
-            "csp_Email_Templates_Delete",
-            new { ET_ID = id },
-            commandType: CommandType.StoredProcedure
+            "DELETE FROM Email_Templates WHERE ET_ID = @ET_ID",
+            new { ET_ID = id }
         );
     }
 }
