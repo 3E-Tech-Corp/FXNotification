@@ -1,0 +1,200 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Deploy target"
+        type: choice
+        options:
+          - staging
+          - production
+        default: staging
+
+concurrency:
+  group: deploy-${{ inputs.environment || 'staging' }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build
+    runs-on: windows-latest  # Windows required for net8.0-windows target
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore backend
+        run: dotnet restore Backend/Service/EmailWorker.csproj
+
+      - name: Build backend
+        run: dotnet build Backend/Service/EmailWorker.csproj --configuration Release --no-restore
+
+      - name: Publish backend
+        run: dotnet publish Backend/Service/EmailWorker.csproj --configuration Release --output ./publish/backend --no-build
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: Frontend/Admin/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: Frontend/Admin
+
+      - name: Build frontend
+        run: npm run build
+        working-directory: Frontend/Admin
+
+      - name: Upload backend artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend
+          path: publish/backend/
+          retention-days: 3
+
+      - name: Upload frontend artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend
+          path: Frontend/Admin/dist/
+          retention-days: 3
+
+  deploy:
+    name: Deploy (${{ inputs.environment || 'staging' }})
+    needs: build
+    runs-on: [self-hosted, windows, iis]
+    environment: ${{ inputs.environment || 'staging' }}
+    steps:
+      - name: Checkout (for commit info)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set environment variables
+        shell: powershell
+        run: |
+          $env_name = "${{ inputs.environment || 'staging' }}"
+          if ($env_name -eq "production") {
+            echo "SERVICE_NAME=FXEmailWorker" >> $env:GITHUB_ENV
+            echo "SERVICE_PATH=F:\Services\FXNotification" >> $env:GITHUB_ENV
+            echo "FRONTEND_PATH=F:\New_WWW\FXNotification\Admin" >> $env:GITHUB_ENV
+          } else {
+            echo "SERVICE_NAME=FXEmailWorker_STG" >> $env:GITHUB_ENV
+            echo "SERVICE_PATH=F:\Services\FXNotification_STG" >> $env:GITHUB_ENV
+            echo "FRONTEND_PATH=F:\New_WWW\FXNotification_STG\Admin" >> $env:GITHUB_ENV
+          }
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Stop Windows Service
+        shell: powershell
+        run: |
+          $svc = "${{ env.SERVICE_NAME }}"
+          Write-Host "[DEPLOY] Stopping service: $svc" -ForegroundColor Yellow
+          $service = Get-Service -Name $svc -ErrorAction SilentlyContinue
+          if ($service) {
+            if ($service.Status -eq "Running") {
+              Stop-Service -Name $svc -Force
+              # Wait up to 30s for clean shutdown
+              $service.WaitForStatus("Stopped", [TimeSpan]::FromSeconds(30))
+              Write-Host "[DEPLOY] Service stopped" -ForegroundColor Green
+            } else {
+              Write-Host "[DEPLOY] Service already stopped" -ForegroundColor DarkGray
+            }
+          } else {
+            Write-Host "[DEPLOY] Service '$svc' not found — first deployment?" -ForegroundColor Yellow
+          }
+
+      - name: Backup current deployment
+        shell: powershell
+        run: |
+          $svcPath = "${{ env.SERVICE_PATH }}"
+          $backupRoot = "F:\deploy-backups\${{ env.SERVICE_NAME }}"
+          $timestamp = Get-Date -Format "yyyy-MM-dd_HHmmss"
+          $backupDir = Join-Path $backupRoot $timestamp
+
+          if (Test-Path $svcPath) {
+            Write-Host "[BACKUP] Backing up to $backupDir" -ForegroundColor Yellow
+            New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
+            Copy-Item -Path "$svcPath\*" -Destination $backupDir -Recurse -Force -Exclude @("logs", "appsettings.Production.json", "appsettings.Staging.json")
+            Write-Host "[BACKUP] Done" -ForegroundColor Green
+
+            # Keep only last 5 backups
+            $allBackups = Get-ChildItem $backupRoot -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending
+            if ($allBackups.Count -gt 5) {
+              $allBackups | Select-Object -Skip 5 | ForEach-Object {
+                Write-Host "[BACKUP] Removing old: $($_.Name)" -ForegroundColor DarkGray
+                Remove-Item $_.FullName -Recurse -Force
+              }
+            }
+          } else {
+            Write-Host "[BACKUP] No existing deployment to back up" -ForegroundColor DarkGray
+            New-Item -ItemType Directory -Path $svcPath -Force | Out-Null
+          }
+
+      - name: Deploy backend (Windows Service)
+        shell: powershell
+        run: |
+          $svcPath = "${{ env.SERVICE_PATH }}"
+          Write-Host "[DEPLOY] Deploying service to $svcPath" -ForegroundColor Yellow
+
+          # Remove old files but preserve config and logs
+          $preserve = @("appsettings.Production.json", "appsettings.production.json", "appsettings.Staging.json", "logs")
+          Get-ChildItem $svcPath -Exclude $preserve | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+
+          # Copy new files
+          Copy-Item -Path "artifacts\backend\*" -Destination $svcPath -Recurse -Force
+          Write-Host "[DEPLOY] Service files deployed" -ForegroundColor Green
+
+      - name: Deploy frontend (Admin UI)
+        shell: powershell
+        run: |
+          $frontendPath = "${{ env.FRONTEND_PATH }}"
+          if (Test-Path $frontendPath) {
+            Write-Host "[DEPLOY] Deploying admin UI to $frontendPath" -ForegroundColor Yellow
+            Get-ChildItem $frontendPath -Exclude @("web.config") | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+            Copy-Item -Path "artifacts\frontend\*" -Destination $frontendPath -Recurse -Force
+            Write-Host "[DEPLOY] Admin UI deployed" -ForegroundColor Green
+          } else {
+            Write-Host "[DEPLOY] Frontend path not found: $frontendPath — skipping" -ForegroundColor Yellow
+          }
+
+      - name: Start Windows Service
+        shell: powershell
+        run: |
+          $svc = "${{ env.SERVICE_NAME }}"
+          $service = Get-Service -Name $svc -ErrorAction SilentlyContinue
+          if ($service) {
+            Write-Host "[DEPLOY] Starting service: $svc" -ForegroundColor Yellow
+            Start-Service -Name $svc
+            Start-Sleep -Seconds 3
+            $service.Refresh()
+            if ($service.Status -eq "Running") {
+              Write-Host "[DEPLOY] Service running" -ForegroundColor Green
+            } else {
+              Write-Host "[DEPLOY] WARNING: Service status is $($service.Status)" -ForegroundColor Red
+            }
+          } else {
+            Write-Host "[DEPLOY] Service '$svc' not registered. Register manually:" -ForegroundColor Yellow
+            Write-Host "  sc.exe create $svc binPath= `"${{ env.SERVICE_PATH }}\EmailWorker.exe`" start= auto" -ForegroundColor Cyan
+          }
+
+      - name: Summary
+        if: always()
+        shell: powershell
+        run: |
+          $commitHash = "${{ github.sha }}".Substring(0,7)
+          $status = "${{ job.status }}"
+          Write-Host "`n===========================================================" -ForegroundColor $(if ($status -eq "success") { "Green" } else { "Red" })
+          Write-Host "  DEPLOYMENT $($status.ToUpper()): ${{ env.SERVICE_NAME }} ($commitHash)" -ForegroundColor $(if ($status -eq "success") { "Green" } else { "Red" })
+          Write-Host "===========================================================" -ForegroundColor $(if ($status -eq "success") { "Green" } else { "Red" })
