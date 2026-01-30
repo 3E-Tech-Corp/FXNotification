@@ -1,24 +1,10 @@
-﻿using Dapper;
-using MailKit.Net.Smtp;
-using MailKit.Security;
-using Microsoft.Data.SqlClient;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
-using MimeKit;
 using Scriban;
 using Scriban.Runtime;
 using System.Data;
-using System.Net;
 using System.Text.Json.Nodes;
-using static System.Runtime.InteropServices.JavaScript.JSType;
 
 static class Utility
 {
-    
     public static Dictionary<string, object?> RowToDict(DataRow row)
     {
         var dict = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
@@ -26,12 +12,14 @@ static class Utility
             dict[c.ColumnName] = row[c] is DBNull ? null : row[c];
         return dict;
     }
+
     public static List<Dictionary<string, object?>> TableToList(DataTable table)
     {
         var list = new List<Dictionary<string, object?>>(table.Rows.Count);
         foreach (DataRow r in table.Rows) list.Add(RowToDict(r));
         return list;
     }
+
     public static ScriptObject BuildScribanModel(string? bodyJson, string? detailJson)
     {
         object? ToScriban(JsonNode? node)
@@ -79,7 +67,7 @@ static class Utility
             }
             else if (mapped is ScriptObject so)
             {
-                // merge all props to root (e.g., expose multiple arrays by name)
+                // merge all props to root
                 foreach (var kv in so) root[kv.Key] = kv.Value;
 
                 // if it has a single array member, also surface as details/lines
@@ -111,18 +99,17 @@ static class Utility
         return (subjTpl.Render(ctx), bodyTpl.Render(ctx));
     }
 
-    public static string MergeAddress(string ItemAddress, string TaskAddress)
+    public static string MergeAddress(string? ItemAddress, string TaskAddress)
     {
-
         if (TaskAddress.StartsWith("+"))
-            return ItemAddress + ";" + TaskAddress.Substring(1);
+            return (ItemAddress ?? "") + ";" + TaskAddress.Substring(1);
 
         if (string.IsNullOrEmpty(ItemAddress))
             return TaskAddress;
 
         if (TaskAddress.Length > 1)
             return TaskAddress;
-        return ItemAddress;
 
+        return ItemAddress;
     }
 }

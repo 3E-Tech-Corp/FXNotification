@@ -1,31 +1,26 @@
-﻿using Dapper;
+using Dapper;
 using FXEmailWorker;
+using FXEmailWorker.Endpoints;
+using FXEmailWorker.Middleware;
+using FXEmailWorker.Services;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using MimeKit;
-using Scriban.Syntax;
 using Serilog;
 using Serilog.Settings.Configuration;
 using Serilog.Expressions;
-using Serilog.Configuration;
-using Serilog.Sinks.File;
-using System.Data;
 using System.Net;
-using System.Net.Http.Json;
-using System.ServiceProcess;
 
 // Fix TLS security issue - add this at the very beginning
 ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 | SecurityProtocolType.Tls13;
 ServicePointManager.CheckCertificateRevocationList = true;
 
-HostApplicationBuilder builder = Host.CreateApplicationBuilder(args);
+var builder = WebApplication.CreateBuilder(args);
 
-
-
+// ── Serilog ───────────────────────────────────────────────────────────────
 var serilogOptions = new ConfigurationReaderOptions(
     typeof(Serilog.LoggerConfiguration).Assembly,
     typeof(Serilog.LoggerConfigurationExtensions).Assembly,
@@ -34,34 +29,134 @@ var serilogOptions = new ConfigurationReaderOptions(
 
 Log.Logger = new LoggerConfiguration()
     .ReadFrom.Configuration(builder.Configuration, serilogOptions)
-    .CreateLogger(); 
+    .CreateLogger();
 
 builder.Logging.ClearProviders();
-builder.Logging.AddSerilog();  // ✅ CORRECT: Use AddSerilog on Logging
+builder.Logging.AddSerilog();
 
+// ── Windows Service ───────────────────────────────────────────────────────
+builder.Services.AddWindowsService(options =>
+{
+    options.ServiceName = "FX Notification Service";
+});
+
+// ── Configuration bindings ────────────────────────────────────────────────
 builder.Services.Configure<Smssettings>(
     builder.Configuration.GetSection("SMSSettings"));
 
-builder.Services.AddWindowsService(options =>
-{
-    options.ServiceName = "Feng Xiao Notification Service";
-});
+builder.Services.Configure<WebhookSettings>(
+    builder.Configuration.GetSection("Webhook"));
 
-
-// Bind connection string
+// ── Database ──────────────────────────────────────────────────────────────
 var connectionString = builder.Configuration.GetConnectionString("Default") ??
     throw new InvalidOperationException("Missing ConnectionStrings:Default");
 
 var csb = new SqlConnectionStringBuilder(connectionString);
 
-// Register services
 builder.Services.AddSingleton(csb);
+builder.Services.AddSingleton<IDbConnectionFactory>(new DbConnectionFactory(csb));
+
+// ── HTTP clients ──────────────────────────────────────────────────────────
+var smsSettings = builder.Configuration.GetSection("SMSSettings").Get<Smssettings>();
+if (smsSettings is not null && !string.IsNullOrWhiteSpace(smsSettings.BaseUrl))
+{
+    builder.Services.AddHttpClient("SMS", client =>
+    {
+        client.BaseAddress = new Uri(smsSettings.BaseUrl);
+        client.DefaultRequestHeaders.Add("X-API-Key", smsSettings.ApiKey);
+        client.Timeout = TimeSpan.FromSeconds(30);
+    });
+}
+else
+{
+    builder.Services.AddHttpClient("SMS");
+}
+
+builder.Services.AddHttpClient("Webhook", client =>
+{
+    var timeoutSec = builder.Configuration.GetValue("Webhook:TimeoutSeconds", 10);
+    client.Timeout = TimeSpan.FromSeconds(timeoutSec);
+});
+
+// ── Application services ─────────────────────────────────────────────────
 builder.Services.AddSingleton<IConfiguration>(builder.Configuration);
 builder.Services.AddSingleton<WindowsServiceLifecycle>();
+builder.Services.AddSingleton<WorkerStatusService>();
+builder.Services.AddSingleton<IWebhookService, WebhookService>();
 
-// Register the worker
+// ── Background worker ────────────────────────────────────────────────────
 builder.Services.AddHostedService<FXEmailWorker.EmailWorker>();
 
-var host = builder.Build();
-await host.RunAsync();
+// ── Swagger / OpenAPI ────────────────────────────────────────────────────
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(c =>
+{
+    c.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo
+    {
+        Title = "FX Notification API",
+        Version = "v1",
+        Description = "REST API for the FX Notification Service — queue, monitor, and manage email/SMS notifications."
+    });
 
+    // Add API Key auth to Swagger UI
+    c.AddSecurityDefinition("ApiKey", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+    {
+        In = Microsoft.OpenApi.Models.ParameterLocation.Header,
+        Name = "X-API-Key",
+        Type = Microsoft.OpenApi.Models.SecuritySchemeType.ApiKey,
+        Description = "API key for authentication"
+    });
+    c.AddSecurityRequirement(new Microsoft.OpenApi.Models.OpenApiSecurityRequirement
+    {
+        {
+            new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+            {
+                Reference = new Microsoft.OpenApi.Models.OpenApiReference
+                {
+                    Type = Microsoft.OpenApi.Models.ReferenceType.SecurityScheme,
+                    Id = "ApiKey"
+                }
+            },
+            Array.Empty<string>()
+        }
+    });
+});
+
+// ── Build app ─────────────────────────────────────────────────────────────
+var app = builder.Build();
+
+// ── Middleware pipeline ───────────────────────────────────────────────────
+var enableSwagger = builder.Configuration.GetValue("ApiSettings:EnableSwagger", true);
+if (enableSwagger)
+{
+    app.UseSwagger();
+    app.UseSwaggerUI(c =>
+    {
+        c.SwaggerEndpoint("/swagger/v1/swagger.json", "FX Notification API v1");
+        c.RoutePrefix = "swagger";
+    });
+}
+
+app.UseMiddleware<ApiKeyMiddleware>();
+
+// ── Map API endpoints ─────────────────────────────────────────────────────
+app.MapNotificationEndpoints();
+app.MapTemplateEndpoints();
+app.MapTaskEndpoints();
+app.MapProfileEndpoints();
+app.MapHealthEndpoints();
+
+// ── Run ───────────────────────────────────────────────────────────────────
+Log.Information("FX Notification Service starting — API + Background Worker");
+try
+{
+    await app.RunAsync();
+}
+catch (Exception ex)
+{
+    Log.Fatal(ex, "FX Notification Service terminated unexpectedly");
+}
+finally
+{
+    await Log.CloseAndFlushAsync();
+}

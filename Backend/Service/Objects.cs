@@ -1,38 +1,19 @@
-﻿using Dapper;
-using MailKit.Net.Smtp;
-using MailKit.Security;
-using MimeKit;
-using Microsoft.Data.SqlClient;
-
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Configuration;
-using System.Net;
-
-
 namespace FXEmailWorker
 {
-    //public record MailProfileRow(
-    //    int ProfileId, string AppKey, string FromName, string FromEmail,
-    //    string SmtpHost, int SmtpPort, string? AuthUser, string? AuthSecretRef,
-    //    byte SecurityMode, bool IsActive);
     public class MailProfileRow
     {
         public int ProfileId { get; set; }
-        public string AppKey { get; set; }
-        public string FromName { get; set; }
-        public string FromEmail { get; set; }
-        public string SmtpHost { get; set; }
+        public string AppKey { get; set; } = "";
+        public string FromName { get; set; } = "";
+        public string FromEmail { get; set; } = "";
+        public string SmtpHost { get; set; } = "";
         public int SmtpPort { get; set; }
         public string? AuthUser { get; set; }
         public string? AuthSecretRef { get; set; }
         public byte SecurityMode { get; set; }
         public bool IsActive { get; set; }
-
     }
+
     public class OutboxRow
     {
         public long Id { get; set; }
@@ -51,11 +32,17 @@ namespace FXEmailWorker
         public string ToList { get; set; } = "";
         public string? CcList { get; set; }
         public string? BccList { get; set; }
-        public string? Subject { get; set; }   // null → render
-        public string? BodyHtml { get; set; }   // null → render
-        public string? BodyJson { get; set; }  // null → render
+        public string? Subject { get; set; }
+        public string? BodyHtml { get; set; }
+        public string? BodyJson { get; set; }
         public string? DetailJson { get; set; }
         public int Attempts { get; set; }
+        public string? Status { get; set; }
+        public string? WebhookUrl { get; set; }
+        public DateTime? CreatedAt { get; set; }
+        public DateTime? SentAt { get; set; }
+        public DateTime? NextRetryAt { get; set; }
+        public string? ErrorMessage { get; set; }
     }
 
     public class AttachmentRow
@@ -64,13 +51,12 @@ namespace FXEmailWorker
 
         public long AttachmentId { get; set; }
         public long EmailId { get; set; }
-        public string FileName { get; set; }
-        public string MimeType { get; set; }
+        public string FileName { get; set; } = "";
+        public string MimeType { get; set; } = "";
         public bool IsInline { get; set; }
         public string? ContentId { get; set; }
         public byte[]? Content { get; set; }
         public string? StorageUrl { get; set; }
-
     }
 
     public class EmailTemplateRow
@@ -82,6 +68,7 @@ namespace FXEmailWorker
         public string? Body { get; set; }
         public string? App_Code { get; set; }
     }
+
     public class TaskConfig
     {
         public int TaskID { get; set; }
@@ -106,17 +93,12 @@ namespace FXEmailWorker
         public string? LineProcName { get; set; }
         public string? AttachmentProcName { get; set; } = "";
         public string? LangCode { get; set; }
-
-
     }
 
     public sealed class Smssettings
     {
         public string BaseUrl { get; set; } = "";
-        // e.g., https://api.your-sms.local
         public string ApiKey { get; set; } = "";
         public string SendFrom { get; set; } = "";
     }
-
-
 }

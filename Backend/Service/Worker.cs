@@ -1,5 +1,6 @@
-﻿using Dapper;
+using Dapper;
 using FXEmailWorker;
+using FXEmailWorker.Services;
 using MailKit.Net.Smtp;
 using MailKit.Security;
 using Microsoft.Data.SqlClient;
@@ -9,18 +10,12 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MimeKit;
-using Scriban.Syntax;
-using Serilog;
 using System.Data;
 using System.Net;
 using System.Net.Http.Json;
-using System.ServiceProcess;
-using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace FXEmailWorker
 {
-
-
     public sealed class EmailWorker : BackgroundService
     {
         private readonly int batch;
@@ -29,13 +24,26 @@ namespace FXEmailWorker
 
         private readonly Smssettings _sms;
         private readonly IConfiguration _cfg;
-        private readonly SqlConnectionStringBuilder _csb;
+        private readonly IDbConnectionFactory _db;
+        private readonly IHttpClientFactory _httpClientFactory;
+        private readonly IWebhookService _webhookService;
+        private readonly WorkerStatusService _workerStatus;
         private readonly ILogger<EmailWorker> _log;
 
-        public EmailWorker(IConfiguration cfg, SqlConnectionStringBuilder csb, ILogger<EmailWorker> log, IOptions<Smssettings> sms)
+        public EmailWorker(
+            IConfiguration cfg,
+            IDbConnectionFactory db,
+            IHttpClientFactory httpClientFactory,
+            IWebhookService webhookService,
+            WorkerStatusService workerStatus,
+            ILogger<EmailWorker> log,
+            IOptions<Smssettings> sms)
         {
             _cfg = cfg;
-            _csb = csb;
+            _db = db;
+            _httpClientFactory = httpClientFactory;
+            _webhookService = webhookService;
+            _workerStatus = workerStatus;
             _log = log;
             _sms = sms.Value;
             batch = cfg.GetValue("Mail:BatchSize", 50);
@@ -71,9 +79,7 @@ namespace FXEmailWorker
             if (main.Rows.Count > 0)
             {
                 var mainDict = Utility.RowToDict(main.Rows[0]);
-                // Option A: flatten main fields to top-level
                 foreach (var kv in mainDict) model[kv.Key] = kv.Value;
-                // Option B: also expose as "main"
                 model["main"] = mainDict;
             }
 
@@ -87,12 +93,11 @@ namespace FXEmailWorker
                     da.SelectCommand.Parameters.Add(new SqlParameter("@Id", SqlDbType.BigInt) { Value = objectId });
                     da.Fill(lines);
                 }
-                model["detail"] = Utility.TableToList(lines); // array of dicts
+                model["detail"] = Utility.TableToList(lines);
             }
 
             return model;
         }
-
 
         async Task<List<AttachmentRow>> LoadTaskAttachmentsAsync(SqlConnection conn, TaskConfig cfg, long? objectId)
         {
@@ -117,8 +122,7 @@ namespace FXEmailWorker
                     ContentId = rdr.IsDBNull(rdr.GetOrdinal("ContentId")) ? null : rdr.GetString(rdr.GetOrdinal("ContentId")),
                     Content = rdr.IsDBNull(rdr.GetOrdinal("Content")) ? null : (byte[])rdr["Content"],
                     StorageUrl = rdr.IsDBNull(rdr.GetOrdinal("StorageUrl")) ? null : rdr.GetString(rdr.GetOrdinal("StorageUrl"))
-                }
-                );
+                });
             }
             return list;
         }
@@ -126,157 +130,182 @@ namespace FXEmailWorker
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             _log.LogInformation("EmailWorker started");
-            while (!stoppingToken.IsCancellationRequested)
+            _workerStatus.WorkerRunning = true;
+
+            try
             {
-
-                if (WindowsServiceLifecycle.IsPaused)
+                while (!stoppingToken.IsCancellationRequested)
                 {
-                    await Task.Delay(1000, stoppingToken);
-                    continue;
-                }
-
-                int processed = 0;
-                long ItemID = 0;
-                try
-                {
-                    using var conn = new SqlConnection(_csb.ConnectionString);
-                    await conn.OpenAsync(stoppingToken);
-
-                    var items = await conn.QueryAsync<OutboxRow>(
-                        "exec dbo.EmailOutbox_GetBatch  @Batch",
-                        new { batch });
-
-
-                    foreach (var m in items)
+                    if (WindowsServiceLifecycle.IsPaused)
                     {
-                        processed++;
-                        ItemID = m.Id;
-                        // 1) config for task
-                        var cfg = await GetTaskConfigAsync(conn, m.TaskId!);
-                        if (cfg is null) throw new InvalidOperationException($"Task {m.TaskCode} not found.");
+                        await Task.Delay(1000, stoppingToken);
+                        continue;
+                    }
 
+                    int processed = 0;
+                    long ItemID = 0;
+                    try
+                    {
+                        using var conn = _db.CreateConnection();
+                        await conn.OpenAsync(stoppingToken);
 
-                        var profile = await conn.QuerySingleAsync<MailProfileRow>(
-                          "exec dbo.MailProfile_Get @Id",
-                          new { id = cfg.ProfileID });
-                        ////
-                        ///
-                        /// 
-                        /// 
+                        var items = await conn.QueryAsync<OutboxRow>(
+                            "exec dbo.EmailOutbox_GetBatch  @Batch",
+                            new { batch });
 
-                        // if (string.IsNullOrWhiteSpace(m.Subject) || string.IsNullOrWhiteSpace(m.BodyHtml))
-
-                        if (m.ObjectId is null)
-                            throw new InvalidOperationException($"Email {m.Id}: missing ObjectId.");
-
-
-                        // 2) best-match template
-                        var tpl = await LoadTemplateAsync(conn, cfg.TemplateID, m.LangCode ?? cfg.LangCode, profile.ProfileId);
-                        if (tpl is null || string.IsNullOrWhiteSpace(tpl.Subject) || string.IsNullOrWhiteSpace(tpl.Body))
-                            throw new InvalidOperationException($"Template {cfg.TemplateCode} not found/empty.");
-
-                        // 3) run procs → model
-                        var model = Utility.BuildScribanModel(m.BodyJson, m.DetailJson);
-                        //await BuildModelFromProcsAsync(conn, cfg, m.ObjectId.Value);
-
-                        // 4) render
-                        var (subj, html) = Utility.RenderWithScriban(tpl.Subject!, tpl.Body!, model);
-                        m.Subject = subj;
-                        m.BodyHtml = html;
-
-                        m.EmailFromName = Utility.MergeAddress(m.EmailFromName, cfg.MailFromName);
-                        m.EmailFrom = Utility.MergeAddress(m.EmailFrom, cfg.MailFrom);
-                        m.ToList = Utility.MergeAddress(m.ToList, cfg.MailTo);
-                        m.CcList = Utility.MergeAddress(m.CcList, cfg.MailCC);
-                        m.BccList = Utility.MergeAddress(m.BccList, cfg.MailBCC);
-                        m.MailPriority = cfg.MailPriority;
-
-                        if (cfg.Status.ToLower() == "t")
+                        foreach (var m in items)
                         {
-                            //testing send , use test email
-                            string logOrig = string.Format("To: {0}, CC:{1}, BCC:{2}",
-                                    m.ToList, m.CcList, m.BccList);
-                            m.ToList = cfg.TestMailTo;
-                            m.CcList = null;
-                            m.BccList = null;
+                            processed++;
+                            ItemID = m.Id;
+                            // 1) config for task
+                            var cfg = await GetTaskConfigAsync(conn, m.TaskId!);
+                            if (cfg is null) throw new InvalidOperationException($"Task {m.TaskCode} not found.");
 
-                            m.Subject = "[TESTING TASK] " + m.Subject;
-                            if (cfg.TaskType.ToLower() == "t")
-                                m.BodyHtml = string.Format("TEST SMS:: Original To {0} --- {1}", m.ToList, m.BodyHtml);
-                            else
+                            var profile = await conn.QuerySingleAsync<MailProfileRow>(
+                              "exec dbo.MailProfile_Get @Id",
+                              new { id = cfg.ProfileID });
 
-                                m.BodyHtml = string.Format("<p><strong>THIS IS A TEST EMAIL</strong></p><p>Original Recipients:</p><p>{0}</p><hr/>{1}",
-                                WebUtility.HtmlEncode(logOrig), m.BodyHtml);
+                            if (m.ObjectId is null)
+                                throw new InvalidOperationException($"Email {m.Id}: missing ObjectId.");
+
+                            // 2) best-match template
+                            var tpl = await LoadTemplateAsync(conn, cfg.TemplateID, m.LangCode ?? cfg.LangCode, profile.ProfileId);
+                            if (tpl is null || string.IsNullOrWhiteSpace(tpl.Subject) || string.IsNullOrWhiteSpace(tpl.Body))
+                                throw new InvalidOperationException($"Template {cfg.TemplateCode} not found/empty.");
+
+                            // 3) run procs → model
+                            var model = Utility.BuildScribanModel(m.BodyJson, m.DetailJson);
+
+                            // 4) render
+                            var (subj, html) = Utility.RenderWithScriban(tpl.Subject!, tpl.Body!, model);
+                            m.Subject = subj;
+                            m.BodyHtml = html;
+
+                            m.EmailFromName = Utility.MergeAddress(m.EmailFromName, cfg.MailFromName);
+                            m.EmailFrom = Utility.MergeAddress(m.EmailFrom, cfg.MailFrom);
+                            m.ToList = Utility.MergeAddress(m.ToList, cfg.MailTo);
+                            m.CcList = Utility.MergeAddress(m.CcList, cfg.MailCC);
+                            m.BccList = Utility.MergeAddress(m.BccList, cfg.MailBCC);
+                            m.MailPriority = cfg.MailPriority;
+
+                            if (cfg.Status.ToLower() == "t")
+                            {
+                                // testing send, use test email
+                                string logOrig = string.Format("To: {0}, CC:{1}, BCC:{2}",
+                                        m.ToList, m.CcList, m.BccList);
+                                m.ToList = cfg.TestMailTo;
+                                m.CcList = null;
+                                m.BccList = null;
+
+                                m.Subject = "[TESTING TASK] " + m.Subject;
+                                if (cfg.TaskType.ToLower() == "t")
+                                    m.BodyHtml = string.Format("TEST SMS:: Original To {0} --- {1}", m.ToList, m.BodyHtml);
+                                else
+                                    m.BodyHtml = string.Format("<p><strong>THIS IS A TEST EMAIL</strong></p><p>Original Recipients:</p><p>{0}</p><hr/>{1}",
+                                    WebUtility.HtmlEncode(logOrig), m.BodyHtml);
+                            }
+
+                            // Load attachments
+                            var atts = (await conn.QueryAsync<AttachmentRow>(
+                              "exec dbo.EmailAttachments_GetAll   @Id",
+                              new { id = m.Id })).ToList();
+
+                            if (cfg.AttachmentProcName is not null)
+                            {
+                                var taskAtts = await LoadTaskAttachmentsAsync(conn, cfg, m.ObjectId.Value);
+                                atts.AddRange(taskAtts);
+                            }
+
+                            try
+                            {
+                                if (cfg.TaskType.ToLower() == "t")
+                                {
+                                    if (atts.Count > 0)
+                                        await SendSMSAsync(m, atts[0]);
+                                    else
+                                        await SendSMSAsync(m);
+                                }
+                                else
+                                    await SendAsync(profile, m, atts, stoppingToken);
+
+                                await conn.ExecuteAsync(
+                                  "EXEC dbo.EmailOutbox_MarkSent @Id",
+                                  new { m.Id });
+                                _log.LogInformation("Sent {task} email for ({Id}) #{Ticket} to {To}", m.TaskCode, m.Id, m.ObjectId, m.ToList);
+
+                                // Fire webhook on success
+                                if (!string.IsNullOrWhiteSpace(m.WebhookUrl))
+                                {
+                                    _webhookService.FireWebhook(m.WebhookUrl, new WebhookPayload
+                                    {
+                                        NotificationId = m.Id,
+                                        Status = "Sent",
+                                        SentAt = DateTime.UtcNow,
+                                        Attempts = m.Attempts + 1
+                                    });
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                var attempts = m.Attempts + 1;
+                                var delayMin = Math.Min(60, (int)Math.Pow(2, attempts));
+                                await conn.ExecuteAsync(
+                                  "EXEC dbo.EmailOutbox_RecordFailure @Id,@Attempts,@DelayMinutes,@Error,@MaxAttempts",
+                                  new
+                                  {
+                                      Id = m.Id,
+                                      Attempts = attempts,
+                                      DelayMinutes = delayMin,
+                                      Error = ex.Message.Length > 1900 ? ex.Message[..1900] : ex.Message,
+                                      MaxAttempts = maxAttempts
+                                  });
+                                _log.LogWarning(ex, "Email {Id} failed (attempt {Attempts})", m.Id, attempts);
+
+                                // Fire webhook on permanent failure (max attempts exhausted)
+                                if (attempts >= maxAttempts && !string.IsNullOrWhiteSpace(m.WebhookUrl))
+                                {
+                                    _webhookService.FireWebhook(m.WebhookUrl, new WebhookPayload
+                                    {
+                                        NotificationId = m.Id,
+                                        Status = "Failed",
+                                        ErrorMessage = ex.Message.Length > 500 ? ex.Message[..500] : ex.Message,
+                                        Attempts = attempts
+                                    });
+                                }
+                            }
                         }
 
-                        /// 
-                        /// 
-                        /// Do attachments
-                        ////
-
-
-                        var atts = (await conn.QueryAsync<AttachmentRow>(
-                          "exec dbo.EmailAttachments_GetAll   @Id",
-                          new { id = m.Id })).ToList();
-
-                        if (cfg.AttachmentProcName is not null)
+                        if (processed > 0)
                         {
-                            var taskAtts = await LoadTaskAttachmentsAsync(conn, cfg, m.ObjectId.Value);
-                            atts.AddRange(taskAtts);
+                            _workerStatus.LastBatchProcessed = DateTime.UtcNow;
+                            _workerStatus.LastBatchSize = processed;
                         }
-
+                    }
+                    catch (Exception ex)
+                    {
+                        _log.LogError(ex, "Worker loop error");
 
                         try
                         {
-                            if (cfg.TaskType.ToLower() == "t")
-                            {
-                                if (atts.Count > 0)
-                                    await SendSMSAsync(m, atts[0]);
-                                else
-                                    await SendSMSAsync(m);
-
-                            }
-                            else
-                                await SendAsync(profile, m, atts, stoppingToken);
-
-                            await conn.ExecuteAsync(
-                              "EXEC dbo.EmailOutbox_MarkSent @Id",
-                              new { m.Id });
-                            _log.LogInformation("Sent {task} email for ({Id}) #{Ticket} to {To}", m.TaskCode, m.Id, m.ObjectId, m.ToList);
+                            using var conn2 = _db.CreateConnection();
+                            await conn2.OpenAsync(stoppingToken);
+                            await conn2.ExecuteAsync(
+                                    "EXEC dbo.EmailOutbox_MarkLoopError @Id, @Err",
+                                    new { Id = ItemID, Err = ex.Message });
                         }
-                        catch (Exception ex)
+                        catch (Exception innerEx)
                         {
-                            var attempts = m.Attempts + 1;
-                            var delayMin = Math.Min(60, (int)Math.Pow(2, attempts)); // 1,2,4,...60
-                                                                                     // record failure
-                            await conn.ExecuteAsync(
-                              "EXEC dbo.EmailOutbox_RecordFailure @Id,@Attempts,@DelayMinutes,@Error,@MaxAttempts",
-                              new
-                              {
-                                  Id = m.Id,
-                                  Attempts = attempts,
-                                  DelayMinutes = delayMin,
-                                  Error = ex.Message.Length > 1900 ? ex.Message[..1900] : ex.Message,
-                                  MaxAttempts = maxAttempts
-                              });
-                            _log.LogWarning(ex, "Email {Id} failed (attempt {Attempts})", m.Id, attempts);
+                            _log.LogError(innerEx, "Failed to mark loop error for item {Id}", ItemID);
                         }
                     }
+
+                    if (processed == 0)
+                        await Task.Delay(TimeSpan.FromSeconds(idle), stoppingToken);
                 }
-                catch (Exception ex)
-                {
-
-                    _log.LogError(ex, "Worker loop error");
-
-                    var conn2 = new SqlConnection(_csb.ConnectionString);
-                    // Don't crash the service on transient issues
-                    await conn2.ExecuteAsync(
-                            "EXEC dbo.EmailOutbox_MarkLoopError @Id, @Err",
-                            new { Id = ItemID, Err = ex.Message });
-                }
-
-                if (processed == 0)
-                    await Task.Delay(TimeSpan.FromSeconds(idle), stoppingToken);
+            }
+            finally
+            {
+                _workerStatus.WorkerRunning = false;
             }
         }
 
@@ -300,9 +329,6 @@ namespace FXEmailWorker
                 HtmlBody = m.BodyHtml,
                 TextBody = m.BodyHtml
             };
-            ///////
-            ///
-
 
             foreach (var a in atts)
             {
@@ -311,17 +337,14 @@ namespace FXEmailWorker
                 {
                     if (a.Content is not null)
                     {
-                        // Use the binary content directly if available
                         stream = new MemoryStream(a.Content);
                     }
                     else if (!string.IsNullOrWhiteSpace(a.StorageUrl))
                     {
-                        // StorageUrl contains the web API download URL - download from it
                         stream = await DownloadFromUrlAsync(a.StorageUrl);
                     }
                     else if (!string.IsNullOrWhiteSpace(a.FileName) && File.Exists(a.FileName))
                     {
-                        // Fallback: use local file path from FileName if StorageUrl is empty
                         stream = File.OpenRead(a.FileName);
                     }
 
@@ -337,7 +360,6 @@ namespace FXEmailWorker
                     }
                     else
                     {
-                        // Attachment
                         var ctypeA = MimeKit.ContentType.Parse(a.MimeType);
                         var att = bodyBuilder.Attachments.Add(a.FileName, stream, ctypeA);
                     }
@@ -353,13 +375,11 @@ namespace FXEmailWorker
             using var client = new SmtpClient();
             var sec = p.SecurityMode switch
             {
-                0 => SecureSocketOptions.None,            // Plain (trusted networks only)
-                1 => SecureSocketOptions.StartTls,        // STARTTLS on 587
-                2 => SecureSocketOptions.SslOnConnect,    // SMTPS 465
+                0 => SecureSocketOptions.None,
+                1 => SecureSocketOptions.StartTls,
+                2 => SecureSocketOptions.SslOnConnect,
                 _ => SecureSocketOptions.StartTls
             };
-
-
 
             await client.ConnectAsync(p.SmtpHost, p.SmtpPort, sec, ct);
 
@@ -375,14 +395,8 @@ namespace FXEmailWorker
 
         private async Task<Stream> DownloadFromUrlAsync(string url)
         {
-            using var httpClient = new HttpClient();
-
-            // Set a reasonable timeout
+            var httpClient = _httpClientFactory.CreateClient();
             httpClient.Timeout = TimeSpan.FromMinutes(5);
-
-            // Add any required headers for your API authentication
-            // httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "your-token");
-            // httpClient.DefaultRequestHeaders.Add("ApiKey", "your-api-key");
 
             try
             {
@@ -391,8 +405,7 @@ namespace FXEmailWorker
 
                 var stream = new MemoryStream();
                 await response.Content.CopyToAsync(stream);
-                stream.Position = 0; // Reset stream position to beginning
-
+                stream.Position = 0;
                 return stream;
             }
             catch (HttpRequestException ex)
@@ -403,11 +416,7 @@ namespace FXEmailWorker
 
         private async Task SendSMSAsync(OutboxRow m, AttachmentRow? att = null)
         {
-            using var http = new HttpClient
-            {
-                BaseAddress = new Uri(_sms.BaseUrl)
-            };
-            http.DefaultRequestHeaders.Add("X-API-Key", _sms.ApiKey);
+            var http = _httpClientFactory.CreateClient("SMS");
             string mediaurl = "";
             if (att != null)
             {
@@ -416,10 +425,10 @@ namespace FXEmailWorker
 
             var payload = new
             {
-                from = _sms.SendFrom,                // comma/space separated list your API expects
-                to = m.ToList,                // comma/space separated list your API expects
+                from = _sms.SendFrom,
+                to = m.ToList,
                 body = m.BodyHtml,
-                media = mediaurl          // [] for SMS, array for MMS
+                media = mediaurl
             };
 
             var res = await http.PostAsJsonAsync(_sms.BaseUrl, payload);
@@ -450,8 +459,6 @@ namespace FXEmailWorker
                 return refKey[4..];
             }
             return refKey;
-            //throw new InvalidOperationException($"Unsupported secret ref '{refKey}'");
         }
     }
-
 }
