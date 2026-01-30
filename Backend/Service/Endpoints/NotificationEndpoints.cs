@@ -31,7 +31,152 @@ public static class NotificationEndpoints
         group.MapGet("/history", GetHistory)
             .WithName("GetNotificationHistory")
             .WithSummary("Query notification history");
+
+        // ── Draft → Attach → Release workflow ─────────────────────────
+        group.MapPost("/draft", CreateDraft)
+            .WithName("CreateDraft")
+            .WithSummary("Create a draft notification (status=Draft, not sent until released)");
+
+        group.MapPost("/{id:long}/attachments", AddAttachment)
+            .WithName("AddAttachment")
+            .WithSummary("Add a single attachment to a notification");
+
+        group.MapPost("/{id:long}/release", ReleaseNotification)
+            .WithName("ReleaseNotification")
+            .WithSummary("Release a draft notification for sending (Draft → Pending)");
     }
+
+    // ══════════════════════════════════════════════════════════════════
+    // Draft → Attach → Release workflow
+    // ══════════════════════════════════════════════════════════════════
+
+    private static async Task<IResult> CreateDraft(
+        [FromBody] DraftNotificationRequest req,
+        IDbConnectionFactory db)
+    {
+        if (string.IsNullOrWhiteSpace(req.TaskCode))
+            return Results.BadRequest(ApiResponse.Fail("taskCode is required."));
+        if (string.IsNullOrWhiteSpace(req.To))
+            return Results.BadRequest(ApiResponse.Fail("to is required."));
+
+        try
+        {
+            using var conn = db.CreateConnection();
+            await conn.OpenAsync();
+
+            var newId = await conn.QuerySingleAsync<long>(
+                @"EXEC dbo.EmailOutbox_Draft
+                    @TaskCode, @To, @Cc, @Bcc, @ObjectId,
+                    @BodyJson, @DetailJson, @LangCode, @Priority, @WebhookUrl",
+                new
+                {
+                    req.TaskCode,
+                    To = req.To,
+                    Cc = req.Cc,
+                    Bcc = req.Bcc,
+                    req.ObjectId,
+                    req.BodyJson,
+                    req.DetailJson,
+                    req.LangCode,
+                    req.Priority,
+                    req.WebhookUrl
+                });
+
+            return Results.Ok(ApiResponse<DraftResponse>.Ok(
+                new DraftResponse
+                {
+                    NotificationId = newId,
+                    Status = "Draft",
+                    Message = "Draft created. Add attachments, then release."
+                }));
+        }
+        catch (Exception ex)
+        {
+            return Results.Json(ApiResponse.Fail($"Failed to create draft: {ex.Message}"),
+                statusCode: 500);
+        }
+    }
+
+    private static async Task<IResult> AddAttachment(
+        long id,
+        [FromBody] AddAttachmentRequest req,
+        IDbConnectionFactory db)
+    {
+        if (string.IsNullOrWhiteSpace(req.FileName))
+            return Results.BadRequest(ApiResponse.Fail("fileName is required."));
+        if (string.IsNullOrWhiteSpace(req.Base64Content) && string.IsNullOrWhiteSpace(req.StorageUrl))
+            return Results.BadRequest(ApiResponse.Fail("Either base64Content or storageUrl is required."));
+
+        try
+        {
+            using var conn = db.CreateConnection();
+            await conn.OpenAsync();
+
+            byte[]? content = null;
+            if (!string.IsNullOrWhiteSpace(req.Base64Content))
+                content = Convert.FromBase64String(req.Base64Content);
+
+            var attId = await conn.QuerySingleAsync<long>(
+                @"EXEC dbo.EmailOutbox_AddAttachment
+                    @EmailId, @FileName, @MimeType, @IsInline, @ContentId, @Content, @StorageUrl",
+                new
+                {
+                    EmailId = id,
+                    req.FileName,
+                    req.MimeType,
+                    req.IsInline,
+                    req.ContentId,
+                    Content = content,
+                    req.StorageUrl
+                });
+
+            return Results.Ok(ApiResponse<AttachmentResponse>.Ok(
+                new AttachmentResponse
+                {
+                    AttachmentId = attId,
+                    NotificationId = id,
+                    FileName = req.FileName,
+                    Message = "Attachment added."
+                }));
+        }
+        catch (Exception ex)
+        {
+            return Results.Json(ApiResponse.Fail($"Failed to add attachment: {ex.Message}"),
+                statusCode: 500);
+        }
+    }
+
+    private static async Task<IResult> ReleaseNotification(
+        long id,
+        IDbConnectionFactory db)
+    {
+        try
+        {
+            using var conn = db.CreateConnection();
+            await conn.OpenAsync();
+
+            var releasedId = await conn.QuerySingleAsync<long>(
+                "EXEC dbo.EmailOutbox_Release @Id",
+                new { Id = id });
+
+            return Results.Ok(ApiResponse<ReleaseResponse>.Ok(
+                new ReleaseResponse
+                {
+                    NotificationId = releasedId,
+                    Status = "Pending",
+                    Message = "Released for sending."
+                }));
+        }
+        catch (Exception ex)
+        {
+            return Results.Json(ApiResponse.Fail($"Failed to release notification: {ex.Message}"),
+                statusCode: 500);
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // One-shot queue (existing)
+    // ══════════════════════════════════════════════════════════════════
 
     private static async Task<IResult> QueueNotification(
         [FromBody] QueueNotificationRequest req,

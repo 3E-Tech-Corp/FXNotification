@@ -78,6 +78,63 @@ public class NotificationHistoryResponse
 }
 
 // ──────────────────────────────────────────────
+// Draft / Attach / Release endpoints
+// ──────────────────────────────────────────────
+
+public class DraftNotificationRequest
+{
+    public string TaskCode { get; set; } = "";
+    public string To { get; set; } = "";
+    public string? Cc { get; set; }
+    public string? Bcc { get; set; }
+    public long? ObjectId { get; set; }
+    public string? BodyJson { get; set; }
+    public string? DetailJson { get; set; }
+    public string? LangCode { get; set; }
+    public string Priority { get; set; } = "N";
+    public string? WebhookUrl { get; set; }
+}
+
+public class AddAttachmentRequest
+{
+    public string FileName { get; set; } = "";
+    public string MimeType { get; set; } = "application/octet-stream";
+    /// <summary>
+    /// Base64-encoded file content. Either this or StorageUrl must be provided.
+    /// </summary>
+    public string? Base64Content { get; set; }
+    /// <summary>
+    /// URL to download the attachment from at send time.
+    /// Either this or Base64Content must be provided.
+    /// </summary>
+    public string? StorageUrl { get; set; }
+    public bool IsInline { get; set; }
+    public string? ContentId { get; set; }
+}
+
+public class DraftResponse
+{
+    public long NotificationId { get; set; }
+    public string Status { get; set; } = "Draft";
+    public string? Message { get; set; }
+}
+
+public class AttachmentResponse
+{
+    public long AttachmentId { get; set; }
+    public long NotificationId { get; set; }
+    public string? FileName { get; set; }
+    public string? Message { get; set; }
+}
+
+public class ReleaseResponse
+{
+    public long NotificationId { get; set; }
+    public string Status { get; set; } = "Pending";
+    public string? Message { get; set; }
+}
+
+// ──────────────────────────────────────────────
 // Template endpoints
 // ──────────────────────────────────────────────
 
