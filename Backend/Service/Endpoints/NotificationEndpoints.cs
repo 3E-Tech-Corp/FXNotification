@@ -71,10 +71,17 @@ public static class NotificationEndpoints
             {
                 foreach (var att in req.Attachments)
                 {
-                    var content = Convert.FromBase64String(att.Base64Content);
+                    // Validate: must have either Base64Content or StorageUrl
+                    if (string.IsNullOrWhiteSpace(att.Base64Content) && string.IsNullOrWhiteSpace(att.StorageUrl))
+                        continue; // skip invalid attachment
+
+                    byte[]? content = null;
+                    if (!string.IsNullOrWhiteSpace(att.Base64Content))
+                        content = Convert.FromBase64String(att.Base64Content);
+
                     await conn.ExecuteAsync(
-                        @"INSERT INTO dbo.EmailAttachments (EmailId, FileName, MimeType, IsInline, ContentId, Content)
-                          VALUES (@EmailId, @FileName, @MimeType, @IsInline, @ContentId, @Content)",
+                        @"INSERT INTO dbo.EmailAttachments (EmailId, FileName, MimeType, IsInline, ContentId, Content, StorageUrl)
+                          VALUES (@EmailId, @FileName, @MimeType, @IsInline, @ContentId, @Content, @StorageUrl)",
                         new
                         {
                             EmailId = newId,
@@ -82,7 +89,8 @@ public static class NotificationEndpoints
                             att.MimeType,
                             att.IsInline,
                             att.ContentId,
-                            Content = content
+                            Content = content,
+                            att.StorageUrl
                         });
                 }
             }

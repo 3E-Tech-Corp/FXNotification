@@ -23,7 +23,16 @@ public class AttachmentInput
 {
     public string FileName { get; set; } = "";
     public string MimeType { get; set; } = "application/octet-stream";
-    public string Base64Content { get; set; } = "";
+    /// <summary>
+    /// Base64-encoded file content. Either this or StorageUrl must be provided.
+    /// </summary>
+    public string? Base64Content { get; set; }
+    /// <summary>
+    /// URL to download the attachment from at send time. 
+    /// The worker will download it when sending the email.
+    /// Either this or Base64Content must be provided.
+    /// </summary>
+    public string? StorageUrl { get; set; }
     public bool IsInline { get; set; }
     public string? ContentId { get; set; }
 }
