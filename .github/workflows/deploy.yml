@@ -52,7 +52,7 @@ jobs:
         shell: powershell
         run: |
           echo "SERVICE_NAME=FX_Notify" >> $env:GITHUB_ENV
-          echo "SERVICE_PATH=F:\New_WWW\FXNotify" >> $env:GITHUB_ENV
+          echo "SERVICE_PATH=E:\Deploy\FXEmail" >> $env:GITHUB_ENV
 
       - name: Download artifact
         uses: actions/download-artifact@v4
@@ -78,7 +78,7 @@ jobs:
         shell: powershell
         run: |
           $svcPath = "${{ env.SERVICE_PATH }}"
-          $backupRoot = "F:\deploy-backups\FXNotify"
+          $backupRoot = "E:\deploy-backups\FXEmail"
           $timestamp = Get-Date -Format "yyyy-MM-dd_HHmmss"
           $backupDir = Join-Path $backupRoot $timestamp
           if (Test-Path $svcPath) {
