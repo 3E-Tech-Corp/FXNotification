@@ -52,7 +52,7 @@ jobs:
         shell: powershell
         run: |
           echo "SERVICE_NAME=FX_Notify" >> $env:GITHUB_ENV
-          echo "SERVICE_PATH=E:\Deploy\FXEmail" >> $env:GITHUB_ENV
+          echo "SERVICE_PATH=F:\New_WWW\FXNotify" >> $env:GITHUB_ENV
 
       - name: Download artifact
         uses: actions/download-artifact@v4
@@ -78,7 +78,7 @@ jobs:
         shell: powershell
         run: |
           $svcPath = "${{ env.SERVICE_PATH }}"
-          $backupRoot = "E:\deploy-backups\FXEmail"
+          $backupRoot = "F:\deploy-backups\FXNotify"
           $timestamp = Get-Date -Format "yyyy-MM-dd_HHmmss"
           $backupDir = Join-Path $backupRoot $timestamp
           if (Test-Path $svcPath) {
@@ -108,6 +108,18 @@ jobs:
           # Copy new files
           Copy-Item -Path "artifacts\backend\*" -Destination $svcPath -Recurse -Force
           Write-Host "[DEPLOY] Files deployed"
+
+      - name: Update service binary path
+        shell: powershell
+        run: |
+          $svc = "${{ env.SERVICE_NAME }}"
+          $newExe = "${{ env.SERVICE_PATH }}\EmailWorker.exe"
+          Write-Host "[DEPLOY] Updating service '$svc' binary path to: $newExe"
+          sc.exe config $svc binPath= "$newExe"
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "##[error]Failed to update service binary path"
+            exit 1
+          }
 
       - name: Start Windows Service
         shell: powershell
