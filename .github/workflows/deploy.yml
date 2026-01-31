@@ -94,7 +94,7 @@ jobs:
               }
             }
           } else {
-            Write-Host "[BACKUP] No existing deployment — creating directory"
+            Write-Host "[BACKUP] No existing deployment - creating directory"
             New-Item -ItemType Directory -Path $svcPath -Force | Out-Null
           }
 
