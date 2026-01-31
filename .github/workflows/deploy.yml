@@ -82,13 +82,13 @@ jobs:
         run: |
           $env_name = "${{ inputs.environment || 'staging' }}"
           if ($env_name -eq "production") {
-            echo "SERVICE_NAME=FXEmailWorker" >> $env:GITHUB_ENV
-            echo "SERVICE_PATH=F:\Services\FXNotification" >> $env:GITHUB_ENV
-            echo "FRONTEND_PATH=F:\New_WWW\FXNotification\Admin" >> $env:GITHUB_ENV
+            echo "SERVICE_NAME=FX_Notify" >> $env:GITHUB_ENV
+            echo "SERVICE_PATH=D:\Feng\_Deploy\FXEmail" >> $env:GITHUB_ENV
+            echo "FRONTEND_PATH=D:\Feng\_Deploy\FXEmail\Admin" >> $env:GITHUB_ENV
           } else {
-            echo "SERVICE_NAME=FXEmailWorker_STG" >> $env:GITHUB_ENV
-            echo "SERVICE_PATH=F:\Services\FXNotification_STG" >> $env:GITHUB_ENV
-            echo "FRONTEND_PATH=F:\New_WWW\FXNotification_STG\Admin" >> $env:GITHUB_ENV
+            echo "SERVICE_NAME=FX_Notify_STG" >> $env:GITHUB_ENV
+            echo "SERVICE_PATH=D:\Feng\_Deploy\FXEmail_STG" >> $env:GITHUB_ENV
+            echo "FRONTEND_PATH=D:\Feng\_Deploy\FXEmail_STG\Admin" >> $env:GITHUB_ENV
           }
 
       - name: Download artifacts
@@ -186,7 +186,7 @@ jobs:
             }
           } else {
             Write-Host "[DEPLOY] Service '$svc' not registered. Register manually:" -ForegroundColor Yellow
-            Write-Host "  sc.exe create $svc binPath= `"${{ env.SERVICE_PATH }}\EmailWorker.exe`" start= auto" -ForegroundColor Cyan
+            Write-Host "  sc.exe create $svc binPath= `"${{ env.SERVICE_PATH }}\EmailWorker.exe`" DisplayName= `"FX Email Notification Service`" start= auto" -ForegroundColor Cyan
           }
 
       - name: Summary
