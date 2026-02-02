@@ -266,6 +266,10 @@ ServiceFabricBackup/
 *.ldf
 *.ndf
 
+# Production secrets — NEVER commit
+appsettings.production.json
+appsettings.Production.json
+
 # Business Intelligence projects
 *.rdl.data
 *.bim.layout
