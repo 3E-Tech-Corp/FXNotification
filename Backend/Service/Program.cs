@@ -155,8 +155,6 @@ app.MapHealthEndpoints();
 app.MapApiKeyEndpoints();
 app.MapLookupEndpoints();
 app.MapOutboxEndpoints();
-app.MapLookupEndpoints();
-app.MapOutboxEndpoints();
 
 // ── Run ───────────────────────────────────────────────────────────────────
 Log.Information("FX Notification Service starting — API + Background Worker");
