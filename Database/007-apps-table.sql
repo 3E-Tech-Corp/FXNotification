@@ -52,7 +52,7 @@ BEGIN
 
         CONSTRAINT PK_AppProfiles       PRIMARY KEY (AppId, ProfileId),
         CONSTRAINT FK_AppProfiles_App   FOREIGN KEY (AppId)     REFERENCES dbo.Apps(AppId),
-        CONSTRAINT FK_AppProfiles_Prof  FOREIGN KEY (ProfileId) REFERENCES dbo.MailProfiles(ProfileId)
+        CONSTRAINT FK_AppProfiles_Prof  FOREIGN KEY (ProfileId) REFERENCES dbo.MailProfile(ProfileId)
     );
 
     PRINT 'Created dbo.AppProfiles junction table.';
