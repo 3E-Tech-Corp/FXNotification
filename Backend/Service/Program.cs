@@ -18,7 +18,12 @@ using System.Net;
 ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 | SecurityProtocolType.Tls13;
 ServicePointManager.CheckCertificateRevocationList = true;
 
-var builder = WebApplication.CreateBuilder(args);
+var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+{
+    Args = args,
+    ContentRootPath = AppContext.BaseDirectory,
+    WebRootPath = Path.Combine(AppContext.BaseDirectory, "wwwroot")
+});
 
 // ── Serilog ───────────────────────────────────────────────────────────────
 var serilogOptions = new ConfigurationReaderOptions(
