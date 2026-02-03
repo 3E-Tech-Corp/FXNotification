@@ -184,6 +184,28 @@ if (Directory.Exists(adminPath))
 // Debug: log resolved paths on startup
 app.Logger.LogInformation("AppContext.BaseDirectory: {Dir}", AppContext.BaseDirectory);
 app.Logger.LogInformation("Admin path exists: {Exists} at {Path}", Directory.Exists(adminPath), adminPath);
+app.Logger.LogInformation("WebRootPath: {Path}", app.Environment.WebRootPath);
+app.Logger.LogInformation("ContentRootPath: {Path}", app.Environment.ContentRootPath);
+
+// Diagnostic endpoint
+app.MapGet("/admin/diag", () =>
+{
+    var baseDir = AppContext.BaseDirectory;
+    var adminDir = Path.Combine(baseDir, "wwwroot", "admin");
+    var assetsDir = Path.Combine(adminDir, "assets");
+    var files = Directory.Exists(assetsDir)
+        ? Directory.GetFiles(assetsDir).Select(Path.GetFileName).ToArray()
+        : Array.Empty<string>();
+    return new
+    {
+        baseDir,
+        webRoot = app.Environment.WebRootPath,
+        contentRoot = app.Environment.ContentRootPath,
+        adminDirExists = Directory.Exists(adminDir),
+        assetsDirExists = Directory.Exists(assetsDir),
+        assetFiles = files
+    };
+});
 
 // SPA fallback: any /admin/* route that isn't a file → serve admin/index.html
 app.MapFallbackToFile("/admin/{**slug}", "admin/index.html");
