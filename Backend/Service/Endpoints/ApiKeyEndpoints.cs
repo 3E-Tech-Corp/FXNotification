@@ -60,7 +60,7 @@ public static class ApiKeyEndpoints
     private static async Task<List<int>> GetProfileIds(System.Data.Common.DbConnection conn, int appId)
     {
         var links = await conn.QueryAsync<int>(
-            "SELECT ProfileId FROM dbo.AppProfiles WHERE AppId = @AppId", new { AppId = appId });
+            "SELECT ProfileId FROM dbo.AppProfiles WHERE App_ID = @AppId", new { AppId = appId });
         return links.ToList();
     }
 
@@ -89,8 +89,8 @@ public static class ApiKeyEndpoints
         await conn.OpenAsync();
 
         var apps = (await conn.QueryAsync<ApiKeyRecord>(
-            @"SELECT AppId, AppCode, AppName, ApiKey, AllowedTasks, IsActive, CreatedAt, LastUsedAt, RequestCount, Notes
-              FROM dbo.Apps ORDER BY AppId")).ToList();
+            @"SELECT App_ID AS AppId, App_Code AS AppCode, Descr AS AppName, ApiKey, AllowedTasks, IsActive, CreatedAt, LastUsedAt, RequestCount, Notes
+              FROM dbo.Apps ORDER BY App_ID")).ToList();
 
         var allLinks = (await conn.QueryAsync<AppProfileLink>(
             "SELECT AppId, ProfileId FROM dbo.AppProfiles")).ToList();
@@ -126,10 +126,10 @@ public static class ApiKeyEndpoints
         await conn.OpenAsync();
 
         var id = await conn.QuerySingleAsync<int>(
-            @"INSERT INTO dbo.Apps (AppCode, AppName, ApiKey, AllowedTasks, IsActive, CreatedAt, RequestCount, Notes)
-              OUTPUT INSERTED.AppId
-              VALUES (@AppCode, @AppName, @ApiKey, @AllowedTasks, 1, GETUTCDATE(), 0, @Notes)",
-            new { AppCode = appCode, req.AppName, ApiKey = newKey, AllowedTasks = allowedTasksJson, req.Notes });
+            @"INSERT INTO dbo.Apps (App_Code, Descr, ApiKey, AllowedTasks, IsActive, CreatedAt, RequestCount, Notes)
+              OUTPUT INSERTED.App_ID AS AppId
+              VALUES (@App_Code, @Descr, @ApiKey, @AllowedTasks, 1, GETUTCDATE(), 0, @Notes)",
+            new { App_Code = appCode, Descr = req.AppName, ApiKey = newKey, AllowedTasks = allowedTasksJson, req.Notes });
 
         // Set profile links
         if (req.ProfileIds?.Count > 0)
@@ -142,7 +142,7 @@ public static class ApiKeyEndpoints
         ApiKeyMiddleware.InvalidateCache();
 
         var record = await conn.QueryFirstAsync<ApiKeyRecord>(
-            "SELECT AppId, AppCode, AppName, ApiKey, AllowedTasks, IsActive, CreatedAt, LastUsedAt, RequestCount, Notes FROM dbo.Apps WHERE AppId = @Id",
+            "SELECT App_ID AS AppId, App_Code AS AppCode, Descr AS AppName, ApiKey, AllowedTasks, IsActive, CreatedAt, LastUsedAt, RequestCount, Notes FROM dbo.Apps WHERE App_ID = @Id",
             new { Id = id });
 
         var profileIds = await GetProfileIds(conn, id);
@@ -170,13 +170,13 @@ public static class ApiKeyEndpoints
 
         if (req.AppCode is not null)
         {
-            sets.Add("AppCode = @AppCode");
-            p.Add("AppCode", req.AppCode.Trim().ToLower());
+            sets.Add("App_Code = @App_Code");
+            p.Add("App_Code", req.AppCode.Trim().ToLower());
         }
         if (req.AppName is not null)
         {
-            sets.Add("AppName = @AppName");
-            p.Add("AppName", req.AppName);
+            sets.Add("Descr = @Descr");
+            p.Add("Descr", req.AppName);
         }
         if (req.AllowedTasks is not null)
         {
@@ -199,7 +199,7 @@ public static class ApiKeyEndpoints
 
         if (sets.Count > 0)
         {
-            var sql = $"UPDATE dbo.Apps SET {string.Join(", ", sets)} WHERE AppId = @Id";
+            var sql = $"UPDATE dbo.Apps SET {string.Join(", ", sets)} WHERE App_ID = @Id";
             var affected = await conn.ExecuteAsync(sql, p);
             if (affected == 0)
                 return Results.NotFound(ApiResponse.Fail($"App {id} not found."));
@@ -208,7 +208,7 @@ public static class ApiKeyEndpoints
         // Update profile links if provided
         if (req.ProfileIds is not null)
         {
-            await conn.ExecuteAsync("DELETE FROM dbo.AppProfiles WHERE AppId = @AppId", new { AppId = id });
+            await conn.ExecuteAsync("DELETE FROM dbo.AppProfiles WHERE App_ID = @AppId", new { AppId = id });
             foreach (var pid in req.ProfileIds)
                 await conn.ExecuteAsync("INSERT INTO dbo.AppProfiles (AppId, ProfileId) VALUES (@AppId, @ProfileId)",
                     new { AppId = id, ProfileId = pid });
@@ -217,7 +217,7 @@ public static class ApiKeyEndpoints
         ApiKeyMiddleware.InvalidateCache();
 
         var updated = await conn.QueryFirstOrDefaultAsync<ApiKeyRecord>(
-            "SELECT AppId, AppCode, AppName, ApiKey, AllowedTasks, IsActive, CreatedAt, LastUsedAt, RequestCount, Notes FROM dbo.Apps WHERE AppId = @Id",
+            "SELECT App_ID AS AppId, App_Code AS AppCode, Descr AS AppName, ApiKey, AllowedTasks, IsActive, CreatedAt, LastUsedAt, RequestCount, Notes FROM dbo.Apps WHERE App_ID = @Id",
             new { Id = id });
 
         if (updated is null)
@@ -236,8 +236,8 @@ public static class ApiKeyEndpoints
         using var conn = db.CreateConnection();
         await conn.OpenAsync();
 
-        await conn.ExecuteAsync("DELETE FROM dbo.AppProfiles WHERE AppId = @Id", new { Id = id });
-        var affected = await conn.ExecuteAsync("DELETE FROM dbo.Apps WHERE AppId = @Id", new { Id = id });
+        await conn.ExecuteAsync("DELETE FROM dbo.AppProfiles WHERE App_ID = @Id", new { Id = id });
+        var affected = await conn.ExecuteAsync("DELETE FROM dbo.Apps WHERE App_ID = @Id", new { Id = id });
         if (affected == 0)
             return Results.NotFound(ApiResponse.Fail($"App {id} not found."));
 
@@ -254,7 +254,7 @@ public static class ApiKeyEndpoints
         await conn.OpenAsync();
 
         var affected = await conn.ExecuteAsync(
-            "UPDATE dbo.Apps SET IsActive = CASE WHEN IsActive = 1 THEN 0 ELSE 1 END WHERE AppId = @Id",
+            "UPDATE dbo.Apps SET IsActive = CASE WHEN IsActive = 1 THEN 0 ELSE 1 END WHERE App_ID = @Id",
             new { Id = id });
         if (affected == 0)
             return Results.NotFound(ApiResponse.Fail($"App {id} not found."));
@@ -262,7 +262,7 @@ public static class ApiKeyEndpoints
         ApiKeyMiddleware.InvalidateCache();
 
         var updated = await conn.QueryFirstAsync<ApiKeyRecord>(
-            "SELECT AppId, AppCode, AppName, ApiKey, AllowedTasks, IsActive, CreatedAt, LastUsedAt, RequestCount, Notes FROM dbo.Apps WHERE AppId = @Id",
+            "SELECT App_ID AS AppId, App_Code AS AppCode, Descr AS AppName, ApiKey, AllowedTasks, IsActive, CreatedAt, LastUsedAt, RequestCount, Notes FROM dbo.Apps WHERE App_ID = @Id",
             new { Id = id });
         var profileIds = await GetProfileIds(conn, id);
 
@@ -280,7 +280,7 @@ public static class ApiKeyEndpoints
         await conn.OpenAsync();
 
         var affected = await conn.ExecuteAsync(
-            "UPDATE dbo.Apps SET ApiKey = @ApiKey WHERE AppId = @Id",
+            "UPDATE dbo.Apps SET ApiKey = @ApiKey WHERE App_ID = @Id",
             new { ApiKey = newKey, Id = id });
         if (affected == 0)
             return Results.NotFound(ApiResponse.Fail($"App {id} not found."));
@@ -288,7 +288,7 @@ public static class ApiKeyEndpoints
         ApiKeyMiddleware.InvalidateCache();
 
         var updated = await conn.QueryFirstAsync<ApiKeyRecord>(
-            "SELECT AppId, AppCode, AppName, ApiKey, AllowedTasks, IsActive, CreatedAt, LastUsedAt, RequestCount, Notes FROM dbo.Apps WHERE AppId = @Id",
+            "SELECT App_ID AS AppId, App_Code AS AppCode, Descr AS AppName, ApiKey, AllowedTasks, IsActive, CreatedAt, LastUsedAt, RequestCount, Notes FROM dbo.Apps WHERE App_ID = @Id",
             new { Id = id });
         var profileIds = await GetProfileIds(conn, id);
 
@@ -317,7 +317,7 @@ public static class ApiKeyEndpoints
         using var conn = db.CreateConnection();
         await conn.OpenAsync();
 
-        await conn.ExecuteAsync("DELETE FROM dbo.AppProfiles WHERE AppId = @AppId", new { AppId = id });
+        await conn.ExecuteAsync("DELETE FROM dbo.AppProfiles WHERE App_ID = @AppId", new { AppId = id });
         foreach (var pid in profileIds)
             await conn.ExecuteAsync("INSERT INTO dbo.AppProfiles (AppId, ProfileId) VALUES (@AppId, @ProfileId)",
                 new { AppId = id, ProfileId = pid });

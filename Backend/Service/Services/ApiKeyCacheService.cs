@@ -35,7 +35,7 @@ public class ApiKeyCacheService
 
             // Load from dbo.Apps (primary source)
             var keys = await conn.QueryAsync<ApiKeyRecord>(
-                @"SELECT AppId, AppCode, AppName, ApiKey, AllowedTasks, IsActive, CreatedAt, LastUsedAt, RequestCount, Notes
+                @"SELECT App_ID AS AppId, App_Code AS AppCode, Descr AS AppName, ApiKey, AllowedTasks, IsActive, CreatedAt, LastUsedAt, RequestCount, Notes
                   FROM dbo.Apps
                   WHERE IsActive = 1 AND ApiKey IS NOT NULL");
 
@@ -49,11 +49,8 @@ public class ApiKeyCacheService
             // Also load legacy profile-level keys if they still exist
             try
             {
-                var profileKeys = await conn.QueryAsync<ApiKeyRecord>(
-                    @"SELECT ProfileId AS AppId, AppKey AS AppCode, AppKey AS AppName, ApiKey,
-                             NULL AS AllowedTasks, IsActive, GETUTCDATE() AS CreatedAt, LastUsedAt, RequestCount, NULL AS Notes
-                      FROM dbo.MailProfiles
-                      WHERE IsActive = 1 AND ApiKey IS NOT NULL");
+                // Legacy fallback: skip — all keys now come from dbo.Apps above
+                var profileKeys = Enumerable.Empty<ApiKeyRecord>();
 
                 foreach (var k in profileKeys)
                 {
@@ -86,7 +83,7 @@ public class ApiKeyCacheService
             using var conn = _db.CreateConnection();
             await conn.OpenAsync();
             await conn.ExecuteAsync(
-                "UPDATE dbo.Apps SET LastUsedAt = GETUTCDATE(), RequestCount = RequestCount + 1 WHERE AppId = @Id",
+                "UPDATE dbo.Apps SET LastUsedAt = GETUTCDATE(), RequestCount = RequestCount + 1 WHERE App_ID = @Id",
                 new { Id = appId });
         }
         catch (Exception ex)
