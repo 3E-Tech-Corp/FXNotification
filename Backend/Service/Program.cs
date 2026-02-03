@@ -168,19 +168,22 @@ app.Use(async (context, next) =>
     await next();
 });
 
-// Explicit FileProvider for PublishSingleFile compatibility
-var wwwrootPath = Path.Combine(AppContext.BaseDirectory, "wwwroot");
-if (Directory.Exists(wwwrootPath))
+app.UseStaticFiles(); // default wwwroot
+
+// Explicit static files for admin SPA (PublishSingleFile compatibility)
+var adminPath = Path.Combine(AppContext.BaseDirectory, "wwwroot", "admin");
+if (Directory.Exists(adminPath))
 {
     app.UseStaticFiles(new StaticFileOptions
     {
-        FileProvider = new PhysicalFileProvider(wwwrootPath)
+        FileProvider = new PhysicalFileProvider(adminPath),
+        RequestPath = "/admin"
     });
 }
-else
-{
-    app.UseStaticFiles(); // fallback
-}
+
+// Debug: log resolved paths on startup
+app.Logger.LogInformation("AppContext.BaseDirectory: {Dir}", AppContext.BaseDirectory);
+app.Logger.LogInformation("Admin path exists: {Exists} at {Path}", Directory.Exists(adminPath), adminPath);
 
 // SPA fallback: any /admin/* route that isn't a file → serve admin/index.html
 app.MapFallbackToFile("/admin/{**slug}", "admin/index.html");
