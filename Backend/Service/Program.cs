@@ -13,6 +13,7 @@ using Serilog;
 using Serilog.Settings.Configuration;
 using Serilog.Expressions;
 using System.Net;
+using Microsoft.Extensions.FileProviders;
 
 // Fix TLS security issue - add this at the very beginning
 ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 | SecurityProtocolType.Tls13;
@@ -167,7 +168,19 @@ app.Use(async (context, next) =>
     await next();
 });
 
-app.UseStaticFiles(); // serves wwwroot/
+// Explicit FileProvider for PublishSingleFile compatibility
+var wwwrootPath = Path.Combine(AppContext.BaseDirectory, "wwwroot");
+if (Directory.Exists(wwwrootPath))
+{
+    app.UseStaticFiles(new StaticFileOptions
+    {
+        FileProvider = new PhysicalFileProvider(wwwrootPath)
+    });
+}
+else
+{
+    app.UseStaticFiles(); // fallback
+}
 
 // SPA fallback: any /admin/* route that isn't a file → serve admin/index.html
 app.MapFallbackToFile("/admin/{**slug}", "admin/index.html");
