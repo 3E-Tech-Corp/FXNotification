@@ -1,0 +1,68 @@
+name: Install ARR
+
+on:
+  workflow_dispatch:
+
+jobs:
+  install:
+    runs-on: [self-hosted, windows, iis]
+    steps:
+      - name: Download and install ARR
+        shell: powershell
+        run: |
+          $arrUrl = "https://download.microsoft.com/download/E/9/8/E9849D6A-020E-47E4-9FD0-A023E99B54EB/requestRouter_amd64.msi"
+          $installer = "$env:TEMP\arr_amd64.msi"
+          
+          Write-Host "Downloading ARR 3.0..." -ForegroundColor Yellow
+          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+          Invoke-WebRequest -Uri $arrUrl -OutFile $installer -UseBasicParsing
+          
+          Write-Host "Installing ARR..." -ForegroundColor Yellow
+          Start-Process msiexec.exe -ArgumentList "/i `"$installer`" /quiet /norestart" -Wait -NoNewWindow
+          
+          Write-Host "Verifying installation..." -ForegroundColor Yellow
+          Start-Sleep -Seconds 3
+          
+          $arr = Get-WebGlobalModule | Where-Object { $_.Name -like "*requestRouter*" -or $_.Name -like "*arr*" }
+          if ($arr) {
+            Write-Host "ARR installed successfully: $($arr.Name)" -ForegroundColor Green
+          } else {
+            Write-Host "ARR module not detected yet. May need IIS restart." -ForegroundColor Yellow
+          }
+
+      - name: Enable ARR proxy
+        shell: powershell
+        run: |
+          # Enable the proxy feature in ARR
+          $adminSection = Get-WebConfigurationProperty -pspath 'MACHINE/WEBROOT/APPHOST' -filter "system.webServer/proxy" -name "enabled" -ErrorAction SilentlyContinue
+          if ($adminSection -eq $null -or $adminSection.Value -ne $true) {
+            Set-WebConfigurationProperty -pspath 'MACHINE/WEBROOT/APPHOST' -filter "system.webServer/proxy" -name "enabled" -value "True"
+            Write-Host "ARR Proxy enabled" -ForegroundColor Green
+          } else {
+            Write-Host "ARR Proxy already enabled" -ForegroundColor Green
+          }
+
+          # Preserve host header
+          Set-WebConfigurationProperty -pspath 'MACHINE/WEBROOT/APPHOST' -filter "system.webServer/proxy" -name "preserveHostHeader" -value "True"
+          Write-Host "preserveHostHeader = True"
+
+      - name: Restart IIS
+        shell: powershell
+        run: |
+          Write-Host "Restarting IIS..." -ForegroundColor Yellow
+          iisreset /restart
+          Write-Host "IIS restarted" -ForegroundColor Green
+
+      - name: Verify
+        shell: powershell
+        run: |
+          $arr = Get-WebGlobalModule | Where-Object { $_.Name -like "*requestRouter*" -or $_.Name -like "*arr*" }
+          if ($arr) {
+            Write-Host "ARR confirmed: $($arr.Name)" -ForegroundColor Green
+          } else {
+            Write-Host "ARR NOT detected after install" -ForegroundColor Red
+            exit 1
+          }
+          
+          $proxy = Get-WebConfigurationProperty -pspath 'MACHINE/WEBROOT/APPHOST' -filter "system.webServer/proxy" -name "enabled"
+          Write-Host "Proxy enabled: $($proxy.Value)"
