@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using FXEmailWorker.Models;
 using FXEmailWorker.Services;
 
@@ -9,6 +10,21 @@ public class ApiKeyMiddleware
     private readonly string _masterApiKey;
     private const string ApiKeyHeader = "X-API-Key";
 
+    private static ApiKeyCacheService? _cacheInstance;
+
+    /// <summary>Generate a new random API key with fxn_ prefix.</summary>
+    public static string GenerateApiKey()
+    {
+        var bytes = RandomNumberGenerator.GetBytes(32);
+        return "fxn_" + Convert.ToHexString(bytes).ToLowerInvariant();
+    }
+
+    /// <summary>Trigger a cache refresh (fire-and-forget).</summary>
+    public static void InvalidateCache()
+    {
+        _ = _cacheInstance?.RefreshAsync();
+    }
+
     public ApiKeyMiddleware(RequestDelegate next, IConfiguration configuration)
     {
         _next = next;
@@ -18,6 +34,9 @@ public class ApiKeyMiddleware
 
     public async Task InvokeAsync(HttpContext context, ApiKeyCacheService keyCache)
     {
+        // Store cache instance for static InvalidateCache()
+        _cacheInstance ??= keyCache;
+
         // Skip auth for health endpoints and swagger
         if (context.Request.Path.StartsWithSegments("/api/health") ||
             context.Request.Path.StartsWithSegments("/swagger") ||

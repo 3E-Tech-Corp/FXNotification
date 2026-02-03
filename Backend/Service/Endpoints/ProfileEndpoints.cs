@@ -2,6 +2,7 @@ using Dapper;
 using FXEmailWorker.Middleware;
 using FXEmailWorker.Models;
 using FXEmailWorker.Services;
+using Microsoft.AspNetCore.Mvc;
 
 namespace FXEmailWorker.Endpoints;
 
@@ -19,6 +20,14 @@ public static class ProfileEndpoints
         group.MapGet("/{id:int}", GetProfile)
             .WithName("GetProfile")
             .WithSummary("Get mail profile by ID");
+
+        group.MapPost("/", CreateProfile)
+            .WithName("CreateProfile")
+            .WithSummary("Create a new mail profile (master key required)");
+
+        group.MapPut("/{id:int}", UpdateProfile)
+            .WithName("UpdateProfile")
+            .WithSummary("Update a mail profile (master key required)");
 
         group.MapPost("/{id:int}/generate-key", GenerateKey)
             .WithName("GenerateProfileApiKey")
@@ -70,6 +79,81 @@ public static class ProfileEndpoints
         profile.AuthSecretRef = null;
 
         return Results.Ok(ApiResponse<MailProfileRow>.Ok(profile));
+    }
+
+    private static async Task<IResult> CreateProfile(
+        HttpContext httpContext,
+        [FromBody] MailProfileRow profile,
+        IDbConnectionFactory db)
+    {
+        if (!IsMasterKey(httpContext))
+            return Results.Json(ApiResponse.Fail("Master API key required."), statusCode: 403);
+
+        using var conn = db.CreateConnection();
+        await conn.OpenAsync();
+
+        var id = await conn.QuerySingleAsync<int>(
+            @"INSERT INTO dbo.MailProfiles (AppKey, FromName, FromEmail, SmtpHost, SmtpPort, AuthUser, AuthSecretRef, SecurityMode, IsActive)
+              OUTPUT INSERTED.ProfileId
+              VALUES (@AppKey, @FromName, @FromEmail, @SmtpHost, @SmtpPort, @AuthUser, @AuthSecretRef, @SecurityMode, @IsActive)",
+            new
+            {
+                profile.AppKey,
+                profile.FromName,
+                profile.FromEmail,
+                profile.SmtpHost,
+                SmtpPort = profile.SmtpPort > 0 ? profile.SmtpPort : 587,
+                profile.AuthUser,
+                profile.AuthSecretRef,
+                profile.SecurityMode,
+                IsActive = profile.IsActive
+            });
+
+        return Results.Ok(ApiResponse<object>.Ok(new { profileId = id }, "Profile created."));
+    }
+
+    private static async Task<IResult> UpdateProfile(
+        int id,
+        HttpContext httpContext,
+        [FromBody] MailProfileRow profile,
+        IDbConnectionFactory db)
+    {
+        if (!IsMasterKey(httpContext))
+            return Results.Json(ApiResponse.Fail("Master API key required."), statusCode: 403);
+
+        using var conn = db.CreateConnection();
+        await conn.OpenAsync();
+
+        var affected = await conn.ExecuteAsync(
+            @"UPDATE dbo.MailProfiles SET
+                AppKey = @AppKey,
+                FromName = @FromName,
+                FromEmail = @FromEmail,
+                SmtpHost = @SmtpHost,
+                SmtpPort = @SmtpPort,
+                AuthUser = @AuthUser,
+                AuthSecretRef = COALESCE(NULLIF(@AuthSecretRef, ''), AuthSecretRef),
+                SecurityMode = @SecurityMode,
+                IsActive = @IsActive
+              WHERE ProfileId = @Id",
+            new
+            {
+                Id = id,
+                profile.AppKey,
+                profile.FromName,
+                profile.FromEmail,
+                profile.SmtpHost,
+                SmtpPort = profile.SmtpPort > 0 ? profile.SmtpPort : 587,
+                profile.AuthUser,
+                profile.AuthSecretRef,
+                profile.SecurityMode,
+                IsActive = profile.IsActive
+            });
+
+        if (affected == 0)
+            return Results.NotFound(ApiResponse.Fail($"Profile {id} not found."));
+
+        return Results.Ok(ApiResponse.Ok(message: $"Profile {id} updated."));
     }
 
     /// <summary>

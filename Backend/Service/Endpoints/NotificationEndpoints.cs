@@ -1,5 +1,4 @@
 using Dapper;
-using FXEmailWorker.Middleware;
 using FXEmailWorker.Models;
 using FXEmailWorker.Services;
 using Microsoft.AspNetCore.Mvc;
@@ -48,44 +47,43 @@ public static class NotificationEndpoints
     }
 
     // ══════════════════════════════════════════════════════════════════
-    // Draft → Attach → Release workflow
+    // Task authorization helper
     // ══════════════════════════════════════════════════════════════════
 
     /// <summary>
-    /// Check if the authenticated app key is allowed to use the given task.
-    /// App keys can only queue tasks that belong to their profile.
-    /// Master key has no restrictions.
+    /// Check if the current API key is authorized for the given task code.
+    /// Returns null if authorized, or a 403 IResult if not.
     /// </summary>
-    private static async Task<IResult?> CheckTaskAccess(HttpContext context, string taskCode, IDbConnectionFactory db)
+    private static IResult? CheckTaskAuthorization(HttpContext context, string taskCode)
     {
-        var isMaster = context.Items.TryGetValue("IsMasterKey", out var m) && m is true;
-        if (isMaster) return null;
-
-        if (!context.Items.TryGetValue("ProfileId", out var pidObj) || pidObj is not int profileId)
+        // Master key has no restrictions
+        if (context.Items.TryGetValue("IsMasterKey", out var isMaster) && isMaster is true)
             return null;
 
-        using var conn = db.CreateConnection();
-        await conn.OpenAsync();
-        var taskProfileId = await conn.QueryFirstOrDefaultAsync<int?>(
-            "SELECT ProfileID FROM dbo.EmailTasks WHERE TaskCode = @TaskCode",
-            new { TaskCode = taskCode });
-
-        if (taskProfileId == null)
-            return null; // task not found, let the queue proc handle the error
-
-        if (taskProfileId.Value != profileId)
+        // Check per-app key restrictions
+        if (context.Items.TryGetValue("ApiKey", out var keyObj) && keyObj is ApiKeyRecord record)
         {
-            var appKey = context.Items.TryGetValue("AppKey", out var ak) ? ak?.ToString() : "unknown";
-            return Results.Json(
-                ApiResponse.Fail($"App '{appKey}' is not authorized for task '{taskCode}'. This task belongs to a different application."),
-                statusCode: 403);
+            var allowedTasks = record.GetAllowedTasksList();
+            if (allowedTasks is not null && allowedTasks.Count > 0)
+            {
+                if (!allowedTasks.Contains(taskCode, StringComparer.OrdinalIgnoreCase))
+                {
+                    return Results.Json(
+                        ApiResponse.Fail($"This API key is not authorized for task: {taskCode}"),
+                        statusCode: 403);
+                }
+            }
         }
 
         return null;
     }
 
+    // ══════════════════════════════════════════════════════════════════
+    // Draft → Attach → Release workflow
+    // ══════════════════════════════════════════════════════════════════
+
     private static async Task<IResult> CreateDraft(
-        HttpContext httpContext,
+        HttpContext context,
         [FromBody] DraftNotificationRequest req,
         IDbConnectionFactory db)
     {
@@ -94,8 +92,10 @@ public static class NotificationEndpoints
         if (string.IsNullOrWhiteSpace(req.To))
             return Results.BadRequest(ApiResponse.Fail("to is required."));
 
-        var accessErr = await CheckTaskAccess(httpContext, req.TaskCode, db);
-        if (accessErr != null) return accessErr;
+        // Check per-app task restrictions
+        var taskAuthResult = CheckTaskAuthorization(context, req.TaskCode);
+        if (taskAuthResult is not null)
+            return taskAuthResult;
 
         try
         {
@@ -217,7 +217,7 @@ public static class NotificationEndpoints
     // ══════════════════════════════════════════════════════════════════
 
     private static async Task<IResult> QueueNotification(
-        HttpContext httpContext,
+        HttpContext context,
         [FromBody] QueueNotificationRequest req,
         IDbConnectionFactory db)
     {
@@ -226,8 +226,10 @@ public static class NotificationEndpoints
         if (string.IsNullOrWhiteSpace(req.To))
             return Results.BadRequest(ApiResponse.Fail("to is required."));
 
-        var accessErr = await CheckTaskAccess(httpContext, req.TaskCode, db);
-        if (accessErr != null) return accessErr;
+        // Check per-app task restrictions
+        var taskAuthResult = CheckTaskAuthorization(context, req.TaskCode);
+        if (taskAuthResult is not null)
+            return taskAuthResult;
 
         try
         {
@@ -293,20 +295,21 @@ public static class NotificationEndpoints
     }
 
     private static async Task<IResult> QueueBatch(
-        HttpContext httpContext,
+        HttpContext context,
         [FromBody] QueueBatchRequest req,
         IDbConnectionFactory db)
     {
         if (req.Notifications.Count == 0)
             return Results.BadRequest(ApiResponse.Fail("notifications array is empty."));
 
-        // Check task access for all requested tasks upfront
+        // Check per-app task restrictions for all requested tasks
         foreach (var n in req.Notifications)
         {
             if (!string.IsNullOrWhiteSpace(n.TaskCode))
             {
-                var accessErr = await CheckTaskAccess(httpContext, n.TaskCode, db);
-                if (accessErr != null) return accessErr;
+                var taskAuthResult = CheckTaskAuthorization(context, n.TaskCode);
+                if (taskAuthResult is not null)
+                    return taskAuthResult;
             }
         }
 

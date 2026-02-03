@@ -23,7 +23,18 @@ public static class TaskEndpoints
         group.MapPut("/{id:int}/status", UpdateTaskStatus)
             .WithName("UpdateTaskStatus")
             .WithSummary("Update task status (A=Active, T=Testing, N=Inactive)");
+
+        group.MapPost("/", CreateTask)
+            .WithName("CreateTask")
+            .WithSummary("Create a new task (master key required)");
+
+        group.MapPut("/{id:int}", UpdateTask)
+            .WithName("UpdateTask")
+            .WithSummary("Update a task (master key required)");
     }
+
+    private static bool IsMasterKey(HttpContext context)
+        => context.Items.TryGetValue("IsMasterKey", out var val) && val is true;
 
     private static async Task<IResult> ListTasks(IDbConnectionFactory db)
     {
@@ -53,6 +64,101 @@ public static class TaskEndpoints
             return Results.NotFound(ApiResponse.Fail($"Task {id} not found."));
 
         return Results.Ok(ApiResponse<TaskConfig>.Ok(task));
+    }
+
+    private static async Task<IResult> CreateTask(
+        HttpContext httpContext,
+        [FromBody] TaskConfig task,
+        IDbConnectionFactory db)
+    {
+        if (!IsMasterKey(httpContext))
+            return Results.Json(ApiResponse.Fail("Master API key required."), statusCode: 403);
+
+        if (string.IsNullOrWhiteSpace(task.TaskCode))
+            return Results.BadRequest(ApiResponse.Fail("taskCode is required."));
+
+        using var conn = db.CreateConnection();
+        await conn.OpenAsync();
+
+        var id = await conn.QuerySingleAsync<int>(
+            @"INSERT INTO dbo.EmailTasks (TaskCode, Status, MailPriority, ProfileID, TemplateID, TemplateCode,
+                TaskType, TestMailTo, MailFromName, MailFrom, MailTo, MailCC, MailBCC,
+                MainProcName, LineProcName, AttachmentProcName, LangCode)
+              OUTPUT INSERTED.TaskID
+              VALUES (@TaskCode, @Status, @MailPriority, @ProfileID, @TemplateID, @TemplateCode,
+                @TaskType, @TestMailTo, @MailFromName, @MailFrom, @MailTo, @MailCC, @MailBCC,
+                @MainProcName, @LineProcName, @AttachmentProcName, @LangCode)",
+            new
+            {
+                task.TaskCode,
+                Status = string.IsNullOrEmpty(task.Status) ? "A" : task.Status,
+                MailPriority = string.IsNullOrEmpty(task.MailPriority) ? "N" : task.MailPriority,
+                task.ProfileID,
+                task.TemplateID,
+                task.TemplateCode,
+                TaskType = string.IsNullOrEmpty(task.TaskType) ? "Email" : task.TaskType,
+                task.TestMailTo,
+                task.MailFromName,
+                task.MailFrom,
+                task.MailTo,
+                task.MailCC,
+                task.MailBCC,
+                task.MainProcName,
+                task.LineProcName,
+                task.AttachmentProcName,
+                task.LangCode
+            });
+
+        return Results.Ok(ApiResponse<object>.Ok(new { taskId = id }, "Task created."));
+    }
+
+    private static async Task<IResult> UpdateTask(
+        int id,
+        HttpContext httpContext,
+        [FromBody] TaskConfig task,
+        IDbConnectionFactory db)
+    {
+        if (!IsMasterKey(httpContext))
+            return Results.Json(ApiResponse.Fail("Master API key required."), statusCode: 403);
+
+        using var conn = db.CreateConnection();
+        await conn.OpenAsync();
+
+        var affected = await conn.ExecuteAsync(
+            @"UPDATE dbo.EmailTasks SET
+                TaskCode = @TaskCode, Status = @Status, MailPriority = @MailPriority,
+                ProfileID = @ProfileID, TemplateID = @TemplateID, TemplateCode = @TemplateCode,
+                TaskType = @TaskType, TestMailTo = @TestMailTo, MailFromName = @MailFromName,
+                MailFrom = @MailFrom, MailTo = @MailTo, MailCC = @MailCC, MailBCC = @MailBCC,
+                MainProcName = @MainProcName, LineProcName = @LineProcName,
+                AttachmentProcName = @AttachmentProcName, LangCode = @LangCode
+              WHERE TaskID = @Id",
+            new
+            {
+                Id = id,
+                task.TaskCode,
+                task.Status,
+                task.MailPriority,
+                task.ProfileID,
+                task.TemplateID,
+                task.TemplateCode,
+                task.TaskType,
+                task.TestMailTo,
+                task.MailFromName,
+                task.MailFrom,
+                task.MailTo,
+                task.MailCC,
+                task.MailBCC,
+                task.MainProcName,
+                task.LineProcName,
+                task.AttachmentProcName,
+                task.LangCode
+            });
+
+        if (affected == 0)
+            return Results.NotFound(ApiResponse.Fail($"Task {id} not found."));
+
+        return Results.Ok(ApiResponse.Ok(message: $"Task {id} updated."));
     }
 
     private static async Task<IResult> UpdateTaskStatus(

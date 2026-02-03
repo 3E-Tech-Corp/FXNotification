@@ -1,4 +1,69 @@
+using System.Text.Json;
+
 namespace FXEmailWorker.Models;
+
+// ──────────────────────────────────────────────
+// API Key management
+// ──────────────────────────────────────────────
+
+public class ApiKeyRecord
+{
+    public int Id { get; set; }
+    public string AppName { get; set; } = "";
+    public string ApiKey { get; set; } = "";
+    public string? AllowedTasks { get; set; }
+    public bool IsActive { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime? LastUsedAt { get; set; }
+    public long RequestCount { get; set; }
+    public string? Notes { get; set; }
+
+    /// <summary>
+    /// Deserialize AllowedTasks JSON array into a list of task codes.
+    /// Returns null if AllowedTasks is null/empty (meaning all tasks allowed).
+    /// </summary>
+    public List<string>? GetAllowedTasksList()
+    {
+        if (string.IsNullOrWhiteSpace(AllowedTasks))
+            return null;
+        try
+        {
+            return JsonSerializer.Deserialize<List<string>>(AllowedTasks);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+}
+
+public class CreateApiKeyRequest
+{
+    public string AppName { get; set; } = "";
+    public List<string>? AllowedTasks { get; set; }
+    public string? Notes { get; set; }
+}
+
+public class UpdateApiKeyRequest
+{
+    public List<string>? AllowedTasks { get; set; }
+    public string? Notes { get; set; }
+    public bool? IsActive { get; set; }
+}
+
+public class ApiKeyResponse
+{
+    public int Id { get; set; }
+    public string AppName { get; set; } = "";
+    public string MaskedKey { get; set; } = "";
+    public string? FullKey { get; set; }
+    public List<string>? AllowedTasks { get; set; }
+    public bool IsActive { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime? LastUsedAt { get; set; }
+    public long RequestCount { get; set; }
+    public string? Notes { get; set; }
+}
 
 // ──────────────────────────────────────────────
 // Notification endpoints

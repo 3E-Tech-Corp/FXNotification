@@ -6,6 +6,7 @@ import Outbox from './pages/Outbox';
 import Templates from './pages/Templates';
 import Tasks from './pages/Tasks';
 import Profiles from './pages/Profiles';
+import ApiKeys from './pages/ApiKeys';
 import TemplatePreview from './pages/TemplatePreview';
 
 // Toast context
@@ -76,6 +77,7 @@ export default function App() {
             <Route path="/templates" element={<Templates />} />
             <Route path="/tasks" element={<Tasks />} />
             <Route path="/profiles" element={<Profiles />} />
+            <Route path="/apikeys" element={<ApiKeys />} />
             <Route path="/preview" element={<TemplatePreview />} />
           </Routes>
         </Layout>

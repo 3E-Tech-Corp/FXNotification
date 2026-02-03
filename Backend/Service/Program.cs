@@ -85,6 +85,7 @@ builder.Services.AddSingleton<WorkerStatusService>();
 builder.Services.AddSingleton<IWebhookService, WebhookService>();
 
 // ── API key cache ─────────────────────────────────────────────────────────
+builder.Services.AddSingleton<ApiKeyCacheService>();
 
 // ── Background worker ────────────────────────────────────────────────────
 builder.Services.AddHostedService<FXEmailWorker.EmailWorker>();
@@ -141,12 +142,21 @@ if (enableSwagger)
 
 app.UseMiddleware<ApiKeyMiddleware>();
 
+// Load API key cache on startup
+var keyCache = app.Services.GetRequiredService<ApiKeyCacheService>();
+await keyCache.RefreshAsync();
+
 // ── Map API endpoints ─────────────────────────────────────────────────────
 app.MapNotificationEndpoints();
 app.MapTemplateEndpoints();
 app.MapTaskEndpoints();
 app.MapProfileEndpoints();
 app.MapHealthEndpoints();
+app.MapApiKeyEndpoints();
+app.MapLookupEndpoints();
+app.MapOutboxEndpoints();
+app.MapLookupEndpoints();
+app.MapOutboxEndpoints();
 
 // ── Run ───────────────────────────────────────────────────────────────────
 Log.Information("FX Notification Service starting — API + Background Worker");
