@@ -140,6 +140,33 @@ if (enableSwagger)
     });
 }
 
+// ── Admin UI: localhost-only static files ─────────────────────────────────
+// Serve the built admin SPA from wwwroot/admin, restricted to local access
+app.Use(async (context, next) =>
+{
+    var path = context.Request.Path.Value ?? "";
+    if (path.Equals("/admin", StringComparison.OrdinalIgnoreCase) ||
+        path.StartsWith("/admin/", StringComparison.OrdinalIgnoreCase))
+    {
+        var remoteIp = context.Connection.RemoteIpAddress;
+        var isLocal = IPAddress.IsLoopback(remoteIp!)
+            || remoteIp!.Equals(context.Connection.LocalIpAddress);
+
+        if (!isLocal)
+        {
+            context.Response.StatusCode = 403;
+            await context.Response.WriteAsync("Admin UI is only accessible from the local server.");
+            return;
+        }
+    }
+    await next();
+});
+
+app.UseStaticFiles(); // serves wwwroot/
+
+// SPA fallback: any /admin/* route that isn't a file → serve admin/index.html
+app.MapFallbackToFile("/admin/{**slug}", "admin/index.html");
+
 app.UseMiddleware<ApiKeyMiddleware>();
 
 // Load API key cache on startup
