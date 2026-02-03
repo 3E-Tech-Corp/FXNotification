@@ -19,7 +19,7 @@ import {
   getOutbox,
   getNotificationHistory,
   retryOutbox,
-  deleteOutboxItem,
+  deleteOutbox,
   retryNotification,
 } from '../services/api';
 import { useToast } from '../App';
@@ -116,7 +116,7 @@ export default function Outbox() {
     e.stopPropagation();
     if (!confirm('Delete this outbox item? This cannot be undone.')) return;
     try {
-      await deleteOutboxItem(id);
+      await deleteOutbox(id);
       toast('Outbox item deleted', 'success');
       fetchData();
     } catch {
