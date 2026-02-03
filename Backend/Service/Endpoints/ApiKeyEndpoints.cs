@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Dapper;
 using FXEmailWorker.Middleware;
 using FXEmailWorker.Models;
@@ -11,62 +10,77 @@ public static class ApiKeyEndpoints
 {
     public static void MapApiKeyEndpoints(this WebApplication app)
     {
-        var group = app.MapGroup("/api/apikeys")
-            .WithTags("API Keys");
+        var group = app.MapGroup("/api/apps")
+            .WithTags("Apps / API Keys");
 
-        group.MapGet("/", ListApiKeys)
-            .WithName("ListApiKeys")
-            .WithSummary("List all API keys (master key required)");
+        group.MapGet("/", ListApps)
+            .WithName("ListApps")
+            .WithSummary("List all apps with their API key info (master key required)");
 
-        group.MapPost("/", CreateApiKey)
-            .WithName("CreateApiKey")
-            .WithSummary("Create a new API key (master key required)");
+        group.MapPost("/", CreateApp)
+            .WithName("CreateApp")
+            .WithSummary("Create a new app with API key (master key required)");
 
-        group.MapPut("/{id:int}", UpdateApiKey)
-            .WithName("UpdateApiKey")
-            .WithSummary("Update an API key (master key required)");
+        group.MapPut("/{id:int}", UpdateApp)
+            .WithName("UpdateApp")
+            .WithSummary("Update an app (master key required)");
 
-        group.MapDelete("/{id:int}", DeleteApiKey)
-            .WithName("DeleteApiKey")
-            .WithSummary("Delete an API key (master key required)");
+        group.MapDelete("/{id:int}", DeleteApp)
+            .WithName("DeleteApp")
+            .WithSummary("Delete an app (master key required)");
 
-        group.MapPost("/{id:int}/toggle", ToggleApiKey)
-            .WithName("ToggleApiKey")
-            .WithSummary("Toggle an API key's active status (master key required)");
+        group.MapPost("/{id:int}/toggle", ToggleApp)
+            .WithName("ToggleApp")
+            .WithSummary("Toggle app active/inactive (master key required)");
 
-        group.MapPost("/{id:int}/regenerate", RegenerateApiKey)
-            .WithName("RegenerateApiKey")
-            .WithSummary("Regenerate an API key (master key required)");
+        group.MapPost("/{id:int}/regenerate", RegenerateKey)
+            .WithName("RegenerateAppKey")
+            .WithSummary("Regenerate app API key (master key required)");
+
+        group.MapGet("/{id:int}/profiles", GetAppProfiles)
+            .WithName("GetAppProfiles")
+            .WithSummary("Get profiles linked to an app");
+
+        group.MapPut("/{id:int}/profiles", SetAppProfiles)
+            .WithName("SetAppProfiles")
+            .WithSummary("Set profiles linked to an app (replaces all)");
+
+        // Keep legacy /api/apikeys path as alias
+        var legacy = app.MapGroup("/api/apikeys").WithTags("Apps / API Keys (Legacy)");
+        legacy.MapGet("/", ListApps).WithName("ListApiKeysLegacy");
+        legacy.MapPost("/", CreateApp).WithName("CreateApiKeyLegacy");
     }
 
     private static bool IsMasterKey(HttpContext context)
         => context.Items.TryGetValue("IsMasterKey", out var val) && val is true;
 
-    private static string MaskKey(string key)
+    private static string MaskKey(string? key)
+        => key != null && key.Length > 12 ? key[..8] + "****" + key[^4..] : "****";
+
+    private static async Task<List<int>> GetProfileIds(System.Data.Common.DbConnection conn, int appId)
     {
-        if (string.IsNullOrWhiteSpace(key) || key.Length < 12)
-            return "****";
-        return key[..4] + "****" + key[^8..];
+        var links = await conn.QueryAsync<int>(
+            "SELECT ProfileId FROM dbo.AppProfiles WHERE AppId = @AppId", new { AppId = appId });
+        return links.ToList();
     }
 
-    private static ApiKeyResponse ToResponse(ApiKeyRecord r, string? fullKey = null)
+    private static AppResponse ToResponse(ApiKeyRecord r, List<int>? profileIds = null, string? fullKey = null) => new()
     {
-        return new ApiKeyResponse
-        {
-            Id = r.Id,
-            AppName = r.AppName,
-            MaskedKey = MaskKey(r.ApiKey),
-            FullKey = fullKey,
-            AllowedTasks = r.GetAllowedTasksList(),
-            IsActive = r.IsActive,
-            CreatedAt = r.CreatedAt,
-            LastUsedAt = r.LastUsedAt,
-            RequestCount = r.RequestCount,
-            Notes = r.Notes
-        };
-    }
+        AppId = r.AppId,
+        AppCode = r.AppCode,
+        AppName = r.AppName,
+        MaskedKey = MaskKey(r.ApiKey),
+        FullKey = fullKey,
+        AllowedTasks = r.GetAllowedTasksList(),
+        IsActive = r.IsActive,
+        CreatedAt = r.CreatedAt,
+        LastUsedAt = r.LastUsedAt,
+        RequestCount = r.RequestCount,
+        Notes = r.Notes,
+        ProfileIds = profileIds ?? new(),
+    };
 
-    private static async Task<IResult> ListApiKeys(HttpContext httpContext, IDbConnectionFactory db)
+    private static async Task<IResult> ListApps(HttpContext httpContext, IDbConnectionFactory db)
     {
         if (!IsMasterKey(httpContext))
             return Results.Json(ApiResponse.Fail("Master API key required."), statusCode: 403);
@@ -74,18 +88,23 @@ public static class ApiKeyEndpoints
         using var conn = db.CreateConnection();
         await conn.OpenAsync();
 
-        var keys = (await conn.QueryAsync<ApiKeyRecord>(
-            @"SELECT Id, AppName, ApiKey, AllowedTasks, IsActive, CreatedAt, LastUsedAt, RequestCount, Notes
-              FROM dbo.ApiKeys
-              ORDER BY Id")).ToList();
+        var apps = (await conn.QueryAsync<ApiKeyRecord>(
+            @"SELECT AppId, AppCode, AppName, ApiKey, AllowedTasks, IsActive, CreatedAt, LastUsedAt, RequestCount, Notes
+              FROM dbo.Apps ORDER BY AppId")).ToList();
 
-        var response = keys.Select(k => ToResponse(k)).ToList();
-        return Results.Ok(ApiResponse<List<ApiKeyResponse>>.Ok(response));
+        var allLinks = (await conn.QueryAsync<AppProfileLink>(
+            "SELECT AppId, ProfileId FROM dbo.AppProfiles")).ToList();
+
+        var linkMap = allLinks.GroupBy(l => l.AppId).ToDictionary(g => g.Key, g => g.Select(l => l.ProfileId).ToList());
+
+        var response = apps.Select(a => ToResponse(a, linkMap.GetValueOrDefault(a.AppId))).ToList();
+
+        return Results.Ok(ApiResponse<List<AppResponse>>.Ok(response));
     }
 
-    private static async Task<IResult> CreateApiKey(
+    private static async Task<IResult> CreateApp(
         HttpContext httpContext,
-        [FromBody] CreateApiKeyRequest req,
+        [FromBody] CreateAppRequest req,
         IDbConnectionFactory db)
     {
         if (!IsMasterKey(httpContext))
@@ -94,110 +113,139 @@ public static class ApiKeyEndpoints
         if (string.IsNullOrWhiteSpace(req.AppName))
             return Results.BadRequest(ApiResponse.Fail("appName is required."));
 
+        var appCode = string.IsNullOrWhiteSpace(req.AppCode)
+            ? req.AppName.Trim().ToLower().Replace(" ", "-")
+            : req.AppCode.Trim().ToLower();
+
         var newKey = ApiKeyMiddleware.GenerateApiKey();
         var allowedTasksJson = req.AllowedTasks?.Count > 0
-            ? JsonSerializer.Serialize(req.AllowedTasks)
+            ? System.Text.Json.JsonSerializer.Serialize(req.AllowedTasks)
             : null;
 
         using var conn = db.CreateConnection();
         await conn.OpenAsync();
 
         var id = await conn.QuerySingleAsync<int>(
-            @"INSERT INTO dbo.ApiKeys (AppName, ApiKey, AllowedTasks, IsActive, CreatedAt, RequestCount, Notes)
-              OUTPUT INSERTED.Id
-              VALUES (@AppName, @ApiKey, @AllowedTasks, 1, GETUTCDATE(), 0, @Notes)",
-            new
-            {
-                req.AppName,
-                ApiKey = newKey,
-                AllowedTasks = allowedTasksJson,
-                req.Notes
-            });
+            @"INSERT INTO dbo.Apps (AppCode, AppName, ApiKey, AllowedTasks, IsActive, CreatedAt, RequestCount, Notes)
+              OUTPUT INSERTED.AppId
+              VALUES (@AppCode, @AppName, @ApiKey, @AllowedTasks, 1, GETUTCDATE(), 0, @Notes)",
+            new { AppCode = appCode, req.AppName, ApiKey = newKey, AllowedTasks = allowedTasksJson, req.Notes });
+
+        // Set profile links
+        if (req.ProfileIds?.Count > 0)
+        {
+            foreach (var pid in req.ProfileIds)
+                await conn.ExecuteAsync("INSERT INTO dbo.AppProfiles (AppId, ProfileId) VALUES (@AppId, @ProfileId)",
+                    new { AppId = id, ProfileId = pid });
+        }
 
         ApiKeyMiddleware.InvalidateCache();
 
-        var record = new ApiKeyRecord
-        {
-            Id = id,
-            AppName = req.AppName,
-            ApiKey = newKey,
-            AllowedTasks = allowedTasksJson,
-            IsActive = true,
-            CreatedAt = DateTime.UtcNow,
-            RequestCount = 0,
-            Notes = req.Notes
-        };
+        var record = await conn.QueryFirstAsync<ApiKeyRecord>(
+            "SELECT AppId, AppCode, AppName, ApiKey, AllowedTasks, IsActive, CreatedAt, LastUsedAt, RequestCount, Notes FROM dbo.Apps WHERE AppId = @Id",
+            new { Id = id });
 
-        return Results.Ok(ApiResponse<ApiKeyResponse>.Ok(
-            ToResponse(record, fullKey: newKey),
-            "API key created. Save the full key — it won't be shown again."));
+        var profileIds = await GetProfileIds(conn, id);
+
+        return Results.Ok(ApiResponse<AppResponse>.Ok(
+            ToResponse(record, profileIds, newKey),
+            "App created with API key. Save the key — it won't be shown again."));
     }
 
-    private static async Task<IResult> UpdateApiKey(
+    private static async Task<IResult> UpdateApp(
         int id,
         HttpContext httpContext,
-        [FromBody] UpdateApiKeyRequest req,
+        [FromBody] UpdateAppRequest req,
         IDbConnectionFactory db)
     {
         if (!IsMasterKey(httpContext))
             return Results.Json(ApiResponse.Fail("Master API key required."), statusCode: 403);
 
-        var allowedTasksJson = req.AllowedTasks?.Count > 0
-            ? JsonSerializer.Serialize(req.AllowedTasks)
-            : null;
-
         using var conn = db.CreateConnection();
         await conn.OpenAsync();
 
-        // Build dynamic SET clause
-        var setClauses = new List<string>();
-        var parameters = new DynamicParameters();
-        parameters.Add("Id", id);
+        var sets = new List<string>();
+        var p = new DynamicParameters();
+        p.Add("Id", id);
 
+        if (req.AppCode is not null)
+        {
+            sets.Add("AppCode = @AppCode");
+            p.Add("AppCode", req.AppCode.Trim().ToLower());
+        }
+        if (req.AppName is not null)
+        {
+            sets.Add("AppName = @AppName");
+            p.Add("AppName", req.AppName);
+        }
         if (req.AllowedTasks is not null)
         {
-            setClauses.Add("AllowedTasks = @AllowedTasks");
-            parameters.Add("AllowedTasks", allowedTasksJson);
+            var json = req.AllowedTasks.Count > 0
+                ? System.Text.Json.JsonSerializer.Serialize(req.AllowedTasks)
+                : null;
+            sets.Add("AllowedTasks = @AllowedTasks");
+            p.Add("AllowedTasks", json);
         }
-
         if (req.Notes is not null)
         {
-            setClauses.Add("Notes = @Notes");
-            parameters.Add("Notes", req.Notes);
+            sets.Add("Notes = @Notes");
+            p.Add("Notes", req.Notes);
         }
-
         if (req.IsActive.HasValue)
         {
-            setClauses.Add("IsActive = @IsActive");
-            parameters.Add("IsActive", req.IsActive.Value);
+            sets.Add("IsActive = @IsActive");
+            p.Add("IsActive", req.IsActive.Value);
         }
 
-        if (setClauses.Count == 0)
-            return Results.BadRequest(ApiResponse.Fail("No fields to update."));
+        if (sets.Count > 0)
+        {
+            var sql = $"UPDATE dbo.Apps SET {string.Join(", ", sets)} WHERE AppId = @Id";
+            var affected = await conn.ExecuteAsync(sql, p);
+            if (affected == 0)
+                return Results.NotFound(ApiResponse.Fail($"App {id} not found."));
+        }
 
-        var sql = $"UPDATE dbo.ApiKeys SET {string.Join(", ", setClauses)} WHERE Id = @Id";
-        var affected = await conn.ExecuteAsync(sql, parameters);
-
-        if (affected == 0)
-            return Results.NotFound(ApiResponse.Fail($"API key {id} not found."));
+        // Update profile links if provided
+        if (req.ProfileIds is not null)
+        {
+            await conn.ExecuteAsync("DELETE FROM dbo.AppProfiles WHERE AppId = @AppId", new { AppId = id });
+            foreach (var pid in req.ProfileIds)
+                await conn.ExecuteAsync("INSERT INTO dbo.AppProfiles (AppId, ProfileId) VALUES (@AppId, @ProfileId)",
+                    new { AppId = id, ProfileId = pid });
+        }
 
         ApiKeyMiddleware.InvalidateCache();
 
-        // Return updated record
         var updated = await conn.QueryFirstOrDefaultAsync<ApiKeyRecord>(
-            @"SELECT Id, AppName, ApiKey, AllowedTasks, IsActive, CreatedAt, LastUsedAt, RequestCount, Notes
-              FROM dbo.ApiKeys WHERE Id = @Id",
+            "SELECT AppId, AppCode, AppName, ApiKey, AllowedTasks, IsActive, CreatedAt, LastUsedAt, RequestCount, Notes FROM dbo.Apps WHERE AppId = @Id",
             new { Id = id });
 
-        return Results.Ok(ApiResponse<ApiKeyResponse>.Ok(
-            ToResponse(updated!),
-            "API key updated."));
+        if (updated is null)
+            return Results.NotFound(ApiResponse.Fail($"App {id} not found."));
+
+        var profileIds = await GetProfileIds(conn, id);
+
+        return Results.Ok(ApiResponse<AppResponse>.Ok(ToResponse(updated, profileIds)));
     }
 
-    private static async Task<IResult> DeleteApiKey(
-        int id,
-        HttpContext httpContext,
-        IDbConnectionFactory db)
+    private static async Task<IResult> DeleteApp(int id, HttpContext httpContext, IDbConnectionFactory db)
+    {
+        if (!IsMasterKey(httpContext))
+            return Results.Json(ApiResponse.Fail("Master API key required."), statusCode: 403);
+
+        using var conn = db.CreateConnection();
+        await conn.OpenAsync();
+
+        await conn.ExecuteAsync("DELETE FROM dbo.AppProfiles WHERE AppId = @Id", new { Id = id });
+        var affected = await conn.ExecuteAsync("DELETE FROM dbo.Apps WHERE AppId = @Id", new { Id = id });
+        if (affected == 0)
+            return Results.NotFound(ApiResponse.Fail($"App {id} not found."));
+
+        ApiKeyMiddleware.InvalidateCache();
+        return Results.Ok(ApiResponse.Ok(message: $"App {id} deleted."));
+    }
+
+    private static async Task<IResult> ToggleApp(int id, HttpContext httpContext, IDbConnectionFactory db)
     {
         if (!IsMasterKey(httpContext))
             return Results.Json(ApiResponse.Fail("Master API key required."), statusCode: 403);
@@ -206,52 +254,22 @@ public static class ApiKeyEndpoints
         await conn.OpenAsync();
 
         var affected = await conn.ExecuteAsync(
-            "DELETE FROM dbo.ApiKeys WHERE Id = @Id",
+            "UPDATE dbo.Apps SET IsActive = CASE WHEN IsActive = 1 THEN 0 ELSE 1 END WHERE AppId = @Id",
             new { Id = id });
-
         if (affected == 0)
-            return Results.NotFound(ApiResponse.Fail($"API key {id} not found."));
+            return Results.NotFound(ApiResponse.Fail($"App {id} not found."));
 
         ApiKeyMiddleware.InvalidateCache();
 
-        return Results.Ok(ApiResponse.Ok(message: $"API key {id} deleted."));
+        var updated = await conn.QueryFirstAsync<ApiKeyRecord>(
+            "SELECT AppId, AppCode, AppName, ApiKey, AllowedTasks, IsActive, CreatedAt, LastUsedAt, RequestCount, Notes FROM dbo.Apps WHERE AppId = @Id",
+            new { Id = id });
+        var profileIds = await GetProfileIds(conn, id);
+
+        return Results.Ok(ApiResponse<AppResponse>.Ok(ToResponse(updated, profileIds)));
     }
 
-    private static async Task<IResult> ToggleApiKey(
-        int id,
-        HttpContext httpContext,
-        IDbConnectionFactory db)
-    {
-        if (!IsMasterKey(httpContext))
-            return Results.Json(ApiResponse.Fail("Master API key required."), statusCode: 403);
-
-        using var conn = db.CreateConnection();
-        await conn.OpenAsync();
-
-        var affected = await conn.ExecuteAsync(
-            "UPDATE dbo.ApiKeys SET IsActive = CASE WHEN IsActive = 1 THEN 0 ELSE 1 END WHERE Id = @Id",
-            new { Id = id });
-
-        if (affected == 0)
-            return Results.NotFound(ApiResponse.Fail($"API key {id} not found."));
-
-        ApiKeyMiddleware.InvalidateCache();
-
-        var updated = await conn.QueryFirstOrDefaultAsync<ApiKeyRecord>(
-            @"SELECT Id, AppName, ApiKey, AllowedTasks, IsActive, CreatedAt, LastUsedAt, RequestCount, Notes
-              FROM dbo.ApiKeys WHERE Id = @Id",
-            new { Id = id });
-
-        var statusLabel = updated!.IsActive ? "activated" : "deactivated";
-        return Results.Ok(ApiResponse<ApiKeyResponse>.Ok(
-            ToResponse(updated),
-            $"API key {id} {statusLabel}."));
-    }
-
-    private static async Task<IResult> RegenerateApiKey(
-        int id,
-        HttpContext httpContext,
-        IDbConnectionFactory db)
+    private static async Task<IResult> RegenerateKey(int id, HttpContext httpContext, IDbConnectionFactory db)
     {
         if (!IsMasterKey(httpContext))
             return Results.Json(ApiResponse.Fail("Master API key required."), statusCode: 403);
@@ -262,21 +280,48 @@ public static class ApiKeyEndpoints
         await conn.OpenAsync();
 
         var affected = await conn.ExecuteAsync(
-            "UPDATE dbo.ApiKeys SET ApiKey = @ApiKey WHERE Id = @Id",
+            "UPDATE dbo.Apps SET ApiKey = @ApiKey WHERE AppId = @Id",
             new { ApiKey = newKey, Id = id });
-
         if (affected == 0)
-            return Results.NotFound(ApiResponse.Fail($"API key {id} not found."));
+            return Results.NotFound(ApiResponse.Fail($"App {id} not found."));
 
         ApiKeyMiddleware.InvalidateCache();
 
-        var updated = await conn.QueryFirstOrDefaultAsync<ApiKeyRecord>(
-            @"SELECT Id, AppName, ApiKey, AllowedTasks, IsActive, CreatedAt, LastUsedAt, RequestCount, Notes
-              FROM dbo.ApiKeys WHERE Id = @Id",
+        var updated = await conn.QueryFirstAsync<ApiKeyRecord>(
+            "SELECT AppId, AppCode, AppName, ApiKey, AllowedTasks, IsActive, CreatedAt, LastUsedAt, RequestCount, Notes FROM dbo.Apps WHERE AppId = @Id",
             new { Id = id });
+        var profileIds = await GetProfileIds(conn, id);
 
-        return Results.Ok(ApiResponse<ApiKeyResponse>.Ok(
-            ToResponse(updated!, fullKey: newKey),
-            "API key regenerated. Save the new key — it won't be shown again."));
+        return Results.Ok(ApiResponse<AppResponse>.Ok(
+            ToResponse(updated, profileIds, newKey),
+            "API key regenerated. Save it — it won't be shown again."));
+    }
+
+    private static async Task<IResult> GetAppProfiles(int id, IDbConnectionFactory db)
+    {
+        using var conn = db.CreateConnection();
+        await conn.OpenAsync();
+        var profileIds = await GetProfileIds(conn, id);
+        return Results.Ok(ApiResponse<List<int>>.Ok(profileIds));
+    }
+
+    private static async Task<IResult> SetAppProfiles(
+        int id,
+        HttpContext httpContext,
+        [FromBody] List<int> profileIds,
+        IDbConnectionFactory db)
+    {
+        if (!IsMasterKey(httpContext))
+            return Results.Json(ApiResponse.Fail("Master API key required."), statusCode: 403);
+
+        using var conn = db.CreateConnection();
+        await conn.OpenAsync();
+
+        await conn.ExecuteAsync("DELETE FROM dbo.AppProfiles WHERE AppId = @AppId", new { AppId = id });
+        foreach (var pid in profileIds)
+            await conn.ExecuteAsync("INSERT INTO dbo.AppProfiles (AppId, ProfileId) VALUES (@AppId, @ProfileId)",
+                new { AppId = id, ProfileId = pid });
+
+        return Results.Ok(ApiResponse<List<int>>.Ok(profileIds, "Profile links updated."));
     }
 }

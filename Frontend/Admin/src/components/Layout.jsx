@@ -23,7 +23,7 @@ const navItems = [
   { to: '/templates', icon: FileText, label: 'Templates' },
   { to: '/tasks', icon: ListChecks, label: 'Tasks' },
   { to: '/profiles', icon: Server, label: 'Profiles' },
-  { to: '/apikeys', icon: Key, label: 'API Keys' },
+  { to: '/apikeys', icon: Key, label: 'Apps & Keys' },
   { to: '/preview', icon: Eye, label: 'Preview' },
 ];
 

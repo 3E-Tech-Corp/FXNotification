@@ -4,7 +4,8 @@ using FXEmailWorker.Models;
 namespace FXEmailWorker.Services;
 
 /// <summary>
-/// Singleton cache for API keys. Loaded once on startup; refreshed on key CRUD operations.
+/// In-memory cache of API keys loaded from dbo.Apps.
+/// Singleton — refreshed on startup and after mutations.
 /// </summary>
 public class ApiKeyCacheService
 {
@@ -19,25 +20,11 @@ public class ApiKeyCacheService
         _logger = logger;
     }
 
-    /// <summary>
-    /// Try to look up a key from the in-memory cache.
-    /// Returns false if the key doesn't exist or is inactive.
-    /// </summary>
     public bool TryGetKey(string apiKey, out ApiKeyRecord? record)
     {
-        if (_cache.TryGetValue(apiKey, out var found) && found.IsActive)
-        {
-            record = found;
-            return true;
-        }
-        record = null;
-        return false;
+        return _cache.TryGetValue(apiKey, out record) && record is not null && record.IsActive;
     }
 
-    /// <summary>
-    /// Reload all active API keys from the database into memory.
-    /// Also loads profile-level API keys from MailProfiles.
-    /// </summary>
     public async Task RefreshAsync()
     {
         await _lock.WaitAsync();
@@ -46,47 +33,41 @@ public class ApiKeyCacheService
             using var conn = _db.CreateConnection();
             await conn.OpenAsync();
 
-            var newCache = new Dictionary<string, ApiKeyRecord>(StringComparer.Ordinal);
-
-            // Load from ApiKeys table
+            // Load from dbo.Apps (primary source)
             var keys = await conn.QueryAsync<ApiKeyRecord>(
-                @"SELECT Id, AppName, ApiKey, AllowedTasks, IsActive, CreatedAt, LastUsedAt, RequestCount, Notes
-                  FROM dbo.ApiKeys
+                @"SELECT AppId, AppCode, AppName, ApiKey, AllowedTasks, IsActive, CreatedAt, LastUsedAt, RequestCount, Notes
+                  FROM dbo.Apps
                   WHERE IsActive = 1 AND ApiKey IS NOT NULL");
 
+            var dict = new Dictionary<string, ApiKeyRecord>(StringComparer.Ordinal);
             foreach (var k in keys)
             {
                 if (!string.IsNullOrWhiteSpace(k.ApiKey))
-                    newCache[k.ApiKey] = k;
+                    dict[k.ApiKey] = k;
             }
 
-            // Load from MailProfiles (profile-level keys)
-            var profileKeys = await conn.QueryAsync<dynamic>(
-                @"SELECT ProfileId, AppKey, ApiKey
-                  FROM dbo.MailProfiles
-                  WHERE ApiKey IS NOT NULL AND IsActive = 1");
-
-            foreach (var pk in profileKeys)
+            // Also load legacy profile-level keys if they still exist
+            try
             {
-                string key = (string)pk.ApiKey;
-                if (!string.IsNullOrWhiteSpace(key) && !newCache.ContainsKey(key))
+                var profileKeys = await conn.QueryAsync<ApiKeyRecord>(
+                    @"SELECT ProfileId AS AppId, AppKey AS AppCode, AppKey AS AppName, ApiKey,
+                             NULL AS AllowedTasks, IsActive, GETUTCDATE() AS CreatedAt, LastUsedAt, RequestCount, NULL AS Notes
+                      FROM dbo.MailProfiles
+                      WHERE IsActive = 1 AND ApiKey IS NOT NULL");
+
+                foreach (var k in profileKeys)
                 {
-                    newCache[key] = new ApiKeyRecord
-                    {
-                        Id = -(int)pk.ProfileId, // negative ID to distinguish profile keys
-                        AppName = (string)(pk.AppKey ?? "profile"),
-                        ApiKey = key,
-                        IsActive = true,
-                        AllowedTasks = null // profile keys have no task restrictions
-                    };
+                    if (!string.IsNullOrWhiteSpace(k.ApiKey) && !dict.ContainsKey(k.ApiKey))
+                        dict[k.ApiKey] = k;
                 }
             }
+            catch
+            {
+                // MailProfiles may not have ApiKey column yet — that's fine
+            }
 
-            _cache = newCache;
-            _logger.LogInformation("API key cache refreshed — {Count} keys loaded ({AppKeys} app keys, {ProfileKeys} profile keys)",
-                newCache.Count,
-                keys.Count(),
-                profileKeys.Count());
+            _cache = dict;
+            _logger.LogInformation("API key cache refreshed: {Count} active keys", dict.Count);
         }
         catch (Exception ex)
         {
@@ -98,39 +79,19 @@ public class ApiKeyCacheService
         }
     }
 
-    /// <summary>
-    /// Fire-and-forget: update LastUsedAt and increment RequestCount for a key.
-    /// </summary>
-    public async Task UpdateUsageAsync(int id)
+    public async Task UpdateUsageAsync(int appId)
     {
         try
         {
             using var conn = _db.CreateConnection();
             await conn.OpenAsync();
-
-            if (id > 0)
-            {
-                // App-level key in ApiKeys table
-                await conn.ExecuteAsync(
-                    @"UPDATE dbo.ApiKeys
-                      SET LastUsedAt = GETUTCDATE(), RequestCount = RequestCount + 1
-                      WHERE Id = @Id",
-                    new { Id = id });
-            }
-            else
-            {
-                // Profile-level key (negative id = ProfileId)
-                var profileId = -id;
-                await conn.ExecuteAsync(
-                    @"UPDATE dbo.MailProfiles
-                      SET LastUsedAt = GETUTCDATE(), RequestCount = RequestCount + 1
-                      WHERE ProfileId = @Id",
-                    new { Id = profileId });
-            }
+            await conn.ExecuteAsync(
+                "UPDATE dbo.Apps SET LastUsedAt = GETUTCDATE(), RequestCount = RequestCount + 1 WHERE AppId = @Id",
+                new { Id = appId });
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to update usage for key ID {Id}", id);
+            _logger.LogWarning(ex, "Failed to update API key usage for AppId={AppId}", appId);
         }
     }
 }

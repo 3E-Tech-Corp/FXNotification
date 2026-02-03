@@ -3,12 +3,19 @@ using System.Text.Json;
 namespace FXEmailWorker.Models;
 
 // ──────────────────────────────────────────────
-// API Key management
+// App / API Key management
 // ──────────────────────────────────────────────
 
+/// <summary>
+/// Row from dbo.Apps — the canonical API key record.
+/// Also used by ApiKeyCacheService for key lookups.
+/// </summary>
 public class ApiKeyRecord
 {
-    public int Id { get; set; }
+    public int AppId { get; set; }
+    // Aliases for backward compat with cache lookups
+    public int Id { get => AppId; set => AppId = value; }
+    public string AppCode { get; set; } = "";
     public string AppName { get; set; } = "";
     public string ApiKey { get; set; } = "";
     public string? AllowedTasks { get; set; }
@@ -37,23 +44,35 @@ public class ApiKeyRecord
     }
 }
 
-public class CreateApiKeyRequest
+public class AppProfileLink
 {
+    public int AppId { get; set; }
+    public int ProfileId { get; set; }
+}
+
+public class CreateAppRequest
+{
+    public string AppCode { get; set; } = "";
     public string AppName { get; set; } = "";
     public List<string>? AllowedTasks { get; set; }
     public string? Notes { get; set; }
+    public List<int>? ProfileIds { get; set; }
 }
 
-public class UpdateApiKeyRequest
+public class UpdateAppRequest
 {
+    public string? AppCode { get; set; }
+    public string? AppName { get; set; }
     public List<string>? AllowedTasks { get; set; }
     public string? Notes { get; set; }
     public bool? IsActive { get; set; }
+    public List<int>? ProfileIds { get; set; }
 }
 
-public class ApiKeyResponse
+public class AppResponse
 {
-    public int Id { get; set; }
+    public int AppId { get; set; }
+    public string AppCode { get; set; } = "";
     public string AppName { get; set; } = "";
     public string MaskedKey { get; set; } = "";
     public string? FullKey { get; set; }
@@ -63,6 +82,7 @@ public class ApiKeyResponse
     public DateTime? LastUsedAt { get; set; }
     public long RequestCount { get; set; }
     public string? Notes { get; set; }
+    public List<int> ProfileIds { get; set; } = new();
 }
 
 // ──────────────────────────────────────────────
