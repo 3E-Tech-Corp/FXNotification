@@ -18,7 +18,7 @@ import StatusBadge from '../components/StatusBadge';
 import {
   getOutbox,
   getNotificationHistory,
-  retryOutboxItem,
+  retryOutbox,
   deleteOutboxItem,
   retryNotification,
 } from '../services/api';
@@ -101,7 +101,7 @@ export default function Outbox() {
     e.stopPropagation();
     try {
       if (tab === 'outbox') {
-        await retryOutboxItem(id);
+        await retryOutbox(id);
       } else {
         await retryNotification(id);
       }
