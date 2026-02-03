@@ -12,6 +12,9 @@ namespace FXEmailWorker
         public string? AuthSecretRef { get; set; }
         public byte SecurityMode { get; set; }
         public bool IsActive { get; set; }
+        public string? MaskedApiKey { get; set; }
+        public DateTime? LastUsedAt { get; set; }
+        public long RequestCount { get; set; }
     }
 
     public class OutboxRow

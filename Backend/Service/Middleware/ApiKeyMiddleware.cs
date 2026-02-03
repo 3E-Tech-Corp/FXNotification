@@ -1,21 +1,22 @@
-using Microsoft.Extensions.Configuration;
+using FXEmailWorker.Models;
+using FXEmailWorker.Services;
 
 namespace FXEmailWorker.Middleware;
 
 public class ApiKeyMiddleware
 {
     private readonly RequestDelegate _next;
-    private readonly string _apiKey;
+    private readonly string _masterApiKey;
     private const string ApiKeyHeader = "X-API-Key";
 
     public ApiKeyMiddleware(RequestDelegate next, IConfiguration configuration)
     {
         _next = next;
-        _apiKey = configuration["ApiSettings:ApiKey"]
+        _masterApiKey = configuration["ApiSettings:ApiKey"]
             ?? throw new InvalidOperationException("ApiSettings:ApiKey is not configured.");
     }
 
-    public async Task InvokeAsync(HttpContext context)
+    public async Task InvokeAsync(HttpContext context, ApiKeyCacheService keyCache)
     {
         // Skip auth for health endpoints and swagger
         if (context.Request.Path.StartsWithSegments("/api/health") ||
@@ -34,19 +35,47 @@ public class ApiKeyMiddleware
         }
 
         if (!context.Request.Headers.TryGetValue(ApiKeyHeader, out var extractedKey) ||
-            !string.Equals(extractedKey, _apiKey, StringComparison.Ordinal))
+            string.IsNullOrWhiteSpace(extractedKey))
         {
-            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-            context.Response.ContentType = "application/json";
-            await context.Response.WriteAsJsonAsync(new
-            {
-                success = false,
-                data = (object?)null,
-                message = "Invalid or missing API key. Provide a valid X-API-Key header."
-            });
+            await WriteUnauthorized(context);
             return;
         }
 
-        await _next(context);
+        string key = extractedKey.ToString();
+
+        // Check master key first (backward compat — unrestricted access)
+        if (string.Equals(key, _masterApiKey, StringComparison.Ordinal))
+        {
+            context.Items["IsMasterKey"] = true;
+            await _next(context);
+            return;
+        }
+
+        // Check per-app keys from cache
+        if (keyCache.TryGetKey(key, out var record) && record is not null)
+        {
+            context.Items["ApiKey"] = record;
+            context.Items["IsMasterKey"] = false;
+
+            // Fire-and-forget: update LastUsedAt and increment RequestCount
+            _ = keyCache.UpdateUsageAsync(record.Id);
+
+            await _next(context);
+            return;
+        }
+
+        await WriteUnauthorized(context);
+    }
+
+    private static async Task WriteUnauthorized(HttpContext context)
+    {
+        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+        context.Response.ContentType = "application/json";
+        await context.Response.WriteAsJsonAsync(new
+        {
+            success = false,
+            data = (object?)null,
+            message = "Invalid or missing API key. Provide a valid X-API-Key header."
+        });
     }
 }

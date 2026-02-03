@@ -84,6 +84,8 @@ builder.Services.AddSingleton<WindowsServiceLifecycle>();
 builder.Services.AddSingleton<WorkerStatusService>();
 builder.Services.AddSingleton<IWebhookService, WebhookService>();
 
+// ── API key cache ─────────────────────────────────────────────────────────
+
 // ── Background worker ────────────────────────────────────────────────────
 builder.Services.AddHostedService<FXEmailWorker.EmailWorker>();
 

@@ -1,4 +1,5 @@
 using Dapper;
+using FXEmailWorker.Middleware;
 using FXEmailWorker.Models;
 using FXEmailWorker.Services;
 using Microsoft.AspNetCore.Mvc;
@@ -50,7 +51,41 @@ public static class NotificationEndpoints
     // Draft → Attach → Release workflow
     // ══════════════════════════════════════════════════════════════════
 
+    /// <summary>
+    /// Check if the authenticated app key is allowed to use the given task.
+    /// App keys can only queue tasks that belong to their profile.
+    /// Master key has no restrictions.
+    /// </summary>
+    private static async Task<IResult?> CheckTaskAccess(HttpContext context, string taskCode, IDbConnectionFactory db)
+    {
+        var isMaster = context.Items.TryGetValue("IsMasterKey", out var m) && m is true;
+        if (isMaster) return null;
+
+        if (!context.Items.TryGetValue("ProfileId", out var pidObj) || pidObj is not int profileId)
+            return null;
+
+        using var conn = db.CreateConnection();
+        await conn.OpenAsync();
+        var taskProfileId = await conn.QueryFirstOrDefaultAsync<int?>(
+            "SELECT ProfileID FROM dbo.EmailTasks WHERE TaskCode = @TaskCode",
+            new { TaskCode = taskCode });
+
+        if (taskProfileId == null)
+            return null; // task not found, let the queue proc handle the error
+
+        if (taskProfileId.Value != profileId)
+        {
+            var appKey = context.Items.TryGetValue("AppKey", out var ak) ? ak?.ToString() : "unknown";
+            return Results.Json(
+                ApiResponse.Fail($"App '{appKey}' is not authorized for task '{taskCode}'. This task belongs to a different application."),
+                statusCode: 403);
+        }
+
+        return null;
+    }
+
     private static async Task<IResult> CreateDraft(
+        HttpContext httpContext,
         [FromBody] DraftNotificationRequest req,
         IDbConnectionFactory db)
     {
@@ -58,6 +93,9 @@ public static class NotificationEndpoints
             return Results.BadRequest(ApiResponse.Fail("taskCode is required."));
         if (string.IsNullOrWhiteSpace(req.To))
             return Results.BadRequest(ApiResponse.Fail("to is required."));
+
+        var accessErr = await CheckTaskAccess(httpContext, req.TaskCode, db);
+        if (accessErr != null) return accessErr;
 
         try
         {
@@ -179,6 +217,7 @@ public static class NotificationEndpoints
     // ══════════════════════════════════════════════════════════════════
 
     private static async Task<IResult> QueueNotification(
+        HttpContext httpContext,
         [FromBody] QueueNotificationRequest req,
         IDbConnectionFactory db)
     {
@@ -186,6 +225,9 @@ public static class NotificationEndpoints
             return Results.BadRequest(ApiResponse.Fail("taskCode is required."));
         if (string.IsNullOrWhiteSpace(req.To))
             return Results.BadRequest(ApiResponse.Fail("to is required."));
+
+        var accessErr = await CheckTaskAccess(httpContext, req.TaskCode, db);
+        if (accessErr != null) return accessErr;
 
         try
         {
@@ -251,11 +293,22 @@ public static class NotificationEndpoints
     }
 
     private static async Task<IResult> QueueBatch(
+        HttpContext httpContext,
         [FromBody] QueueBatchRequest req,
         IDbConnectionFactory db)
     {
         if (req.Notifications.Count == 0)
             return Results.BadRequest(ApiResponse.Fail("notifications array is empty."));
+
+        // Check task access for all requested tasks upfront
+        foreach (var n in req.Notifications)
+        {
+            if (!string.IsNullOrWhiteSpace(n.TaskCode))
+            {
+                var accessErr = await CheckTaskAccess(httpContext, n.TaskCode, db);
+                if (accessErr != null) return accessErr;
+            }
+        }
 
         var results = new List<QueueNotificationResponse>();
         var errors = new List<string>();
