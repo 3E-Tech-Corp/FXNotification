@@ -1,0 +1,30 @@
+name: Run SQL File
+
+on:
+  workflow_dispatch:
+    inputs:
+      file:
+        description: 'SQL file path relative to repo root (e.g. Database/006-apikeys-table.sql)'
+        required: true
+
+jobs:
+  run:
+    name: Run SQL File
+    runs-on: [self-hosted, windows, iis]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Execute SQL File
+        shell: powershell
+        env:
+          SQL_PASSWORD: ${{ secrets.SQL_PASSWORD }}
+        run: |
+          $filePath = "${{ github.event.inputs.file }}"
+          Write-Host "Running SQL file: $filePath"
+          if (-not (Test-Path $filePath)) {
+            Write-Host "##[error]File not found: $filePath"
+            exit 1
+          }
+          Invoke-Sqlcmd -ServerInstance "localhost" -Database "fxEmail" -Username "ftsql" -Password $env:SQL_PASSWORD -InputFile $filePath -Verbose
+          Write-Host "SQL file executed successfully."
