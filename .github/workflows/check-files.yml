@@ -1,0 +1,21 @@
+name: Check Files
+on:
+  workflow_dispatch:
+    inputs:
+      path:
+        description: 'Path to check'
+        required: true
+        default: 'F:\New_WWW\FXNotify\wwwroot\admin'
+jobs:
+  check:
+    runs-on: [self-hosted, windows, iis]
+    steps:
+      - name: List files
+        shell: powershell
+        run: |
+          $p = "${{ github.event.inputs.path }}"
+          if (Test-Path $p) {
+            Get-ChildItem $p -Recurse | ForEach-Object { Write-Host $_.FullName }
+          } else {
+            Write-Host "Path not found: $p"
+          }
