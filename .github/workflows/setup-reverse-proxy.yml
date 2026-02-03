@@ -1,0 +1,141 @@
+name: Setup Reverse Proxy
+
+on:
+  workflow_dispatch:
+    inputs:
+      site_name:
+        description: 'IIS Site Name'
+        required: true
+        default: 'notify.synthia.bot'
+      hostname:
+        description: 'Public hostname'
+        required: true
+        default: 'notify.synthia.bot'
+      backend_url:
+        description: 'Backend URL to proxy to'
+        required: true
+        default: 'http://localhost:5100'
+
+jobs:
+  setup:
+    runs-on: [self-hosted, windows, iis]
+    steps:
+      - name: Check ARR installed
+        shell: powershell
+        run: |
+          $arr = Get-WebGlobalModule | Where-Object { $_.Name -like "*requestRouter*" -or $_.Name -like "*arr*" }
+          if ($arr) {
+            Write-Host "ARR is installed: $($arr.Name)" -ForegroundColor Green
+          } else {
+            Write-Host "ARR not found. Checking URL Rewrite..." -ForegroundColor Yellow
+          }
+          
+          $rewrite = Get-WebGlobalModule | Where-Object { $_.Name -like "*rewrite*" }
+          if ($rewrite) {
+            Write-Host "URL Rewrite is installed: $($rewrite.Name)" -ForegroundColor Green
+          } else {
+            Write-Host "URL Rewrite not found" -ForegroundColor Red
+          }
+
+      - name: Create reverse proxy site
+        shell: powershell
+        run: |
+          $siteName = "${{ inputs.site_name }}"
+          $hostname = "${{ inputs.hostname }}"
+          $backendUrl = "${{ inputs.backend_url }}"
+          $physicalPath = "F:\New_WWW\ReverseProxy_$($siteName -replace '\.','_')"
+          
+          # Create physical path (needed even for reverse proxy)
+          if (-not (Test-Path $physicalPath)) {
+            New-Item -ItemType Directory -Path $physicalPath -Force | Out-Null
+            Write-Host "Created directory: $physicalPath"
+          }
+          
+          # Check if site exists
+          $existing = Get-Website -Name $siteName -ErrorAction SilentlyContinue
+          if ($existing) {
+            Write-Host "Site '$siteName' already exists, updating..." -ForegroundColor Yellow
+          } else {
+            # Create app pool
+            $poolName = $siteName -replace '\.','_'
+            $existingPool = Get-IISAppPool -Name $poolName -ErrorAction SilentlyContinue
+            if (-not $existingPool) {
+              New-WebAppPool -Name $poolName | Out-Null
+              Set-ItemProperty "IIS:\AppPools\$poolName" -Name "managedRuntimeVersion" -Value ""
+              Write-Host "Created app pool: $poolName"
+            }
+            
+            # Create site with HTTP binding
+            New-Website -Name $siteName `
+              -PhysicalPath $physicalPath `
+              -ApplicationPool $poolName `
+              -HostHeader $hostname `
+              -Port 80 | Out-Null
+            Write-Host "Created site: $siteName"
+          }
+          
+          # Write web.config with reverse proxy rules
+          $webConfig = @"
+          <?xml version="1.0" encoding="UTF-8"?>
+          <configuration>
+            <system.webServer>
+              <rewrite>
+                <rules>
+                  <rule name="ReverseProxyInbound" stopProcessing="true">
+                    <match url="(.*)" />
+                    <conditions>
+                      <!-- Block admin UI from external access -->
+                      <add input="{URL}" pattern="^/admin" negate="true" />
+                    </conditions>
+                    <action type="Rewrite" url="$backendUrl/{R:1}" />
+                  </rule>
+                </rules>
+              </rewrite>
+              <httpProtocol>
+                <customHeaders>
+                  <add name="X-Forwarded-Host" value="$hostname" />
+                </customHeaders>
+              </httpProtocol>
+            </system.webServer>
+          </configuration>
+          "@
+          
+          Set-Content -Path "$physicalPath\web.config" -Value $webConfig -Encoding UTF8
+          Write-Host "Wrote web.config with reverse proxy rules"
+          Write-Host "  Backend: $backendUrl"
+          Write-Host "  Admin UI blocked from external access"
+          
+      - name: Verify site
+        shell: powershell
+        run: |
+          $siteName = "${{ inputs.site_name }}"
+          $site = Get-Website -Name $siteName
+          Write-Host "Site: $($site.Name)"
+          Write-Host "State: $($site.State)"
+          Write-Host "Bindings: $($site.Bindings.Collection | ForEach-Object { $_.BindingInformation })"
+          Write-Host ""
+          Write-Host "web.config contents:"
+          Get-Content "F:\New_WWW\ReverseProxy_$($siteName -replace '\.','_')\web.config"
+          
+      - name: Test proxy
+        shell: powershell
+        run: |
+          $backendUrl = "${{ inputs.backend_url }}"
+          Write-Host "Testing backend at $backendUrl/api/health..."
+          try {
+            $response = Invoke-WebRequest -Uri "$backendUrl/api/health" -UseBasicParsing -TimeoutSec 5
+            Write-Host "Backend is responding: HTTP $($response.StatusCode)" -ForegroundColor Green
+          } catch {
+            $code = $_.Exception.Response.StatusCode.value__
+            if ($code) {
+              Write-Host "Backend responded with HTTP $code (may need API key)" -ForegroundColor Yellow
+            } else {
+              Write-Host "Backend not reachable: $($_.Exception.Message)" -ForegroundColor Red
+            }
+          }
+          
+          Write-Host ""
+          Write-Host "=== NEXT STEPS ==="
+          Write-Host "1. Add DNS: notify.synthia.bot -> FTPB1 IP (via Cloudflare)"
+          Write-Host "2. Cloudflare SSL mode: Full (not Strict) if no local cert"
+          Write-Host "3. Test: curl https://notify.synthia.bot/api/health"
