@@ -42,11 +42,11 @@ public static class TaskEndpoints
         await conn.OpenAsync();
 
         var tasks = (await conn.QueryAsync<TaskConfig>(
-            @"SELECT TaskID, TaskCode, Status, MailPriority, ProfileID, TemplateID, TemplateCode,
+            @"SELECT Task_ID AS TaskID, TaskCode, Status, MailPriority, ProfileID, TemplateID, TemplateCode,
                      TaskType, TestMailTo, MailFromName, MailFrom, MailTo, MailCC, MailBCC,
                      MainProcName, LineProcName, AttachmentProcName, LangCode
-              FROM dbo.EmailTasks
-              ORDER BY TaskID")).ToList();
+              FROM dbo.emailtaskconfig
+              ORDER BY Task_ID")).ToList();
 
         return Results.Ok(ApiResponse<List<TaskConfig>>.Ok(tasks));
     }
@@ -81,10 +81,10 @@ public static class TaskEndpoints
         await conn.OpenAsync();
 
         var id = await conn.QuerySingleAsync<int>(
-            @"INSERT INTO dbo.EmailTasks (TaskCode, Status, MailPriority, ProfileID, TemplateID, TemplateCode,
+            @"INSERT INTO dbo.emailtaskconfig (TaskCode, Status, MailPriority, ProfileID, TemplateID, TemplateCode,
                 TaskType, TestMailTo, MailFromName, MailFrom, MailTo, MailCC, MailBCC,
                 MainProcName, LineProcName, AttachmentProcName, LangCode)
-              OUTPUT INSERTED.TaskID
+              OUTPUT INSERTED.Task_ID
               VALUES (@TaskCode, @Status, @MailPriority, @ProfileID, @TemplateID, @TemplateCode,
                 @TaskType, @TestMailTo, @MailFromName, @MailFrom, @MailTo, @MailCC, @MailBCC,
                 @MainProcName, @LineProcName, @AttachmentProcName, @LangCode)",
@@ -125,14 +125,14 @@ public static class TaskEndpoints
         await conn.OpenAsync();
 
         var affected = await conn.ExecuteAsync(
-            @"UPDATE dbo.EmailTasks SET
+            @"UPDATE dbo.emailtaskconfig SET
                 TaskCode = @TaskCode, Status = @Status, MailPriority = @MailPriority,
                 ProfileID = @ProfileID, TemplateID = @TemplateID, TemplateCode = @TemplateCode,
                 TaskType = @TaskType, TestMailTo = @TestMailTo, MailFromName = @MailFromName,
                 MailFrom = @MailFrom, MailTo = @MailTo, MailCC = @MailCC, MailBCC = @MailBCC,
                 MainProcName = @MainProcName, LineProcName = @LineProcName,
                 AttachmentProcName = @AttachmentProcName, LangCode = @LangCode
-              WHERE TaskID = @Id",
+              WHERE Task_ID = @Id",
             new
             {
                 Id = id,
@@ -175,7 +175,7 @@ public static class TaskEndpoints
         await conn.OpenAsync();
 
         var affected = await conn.ExecuteAsync(
-            "UPDATE dbo.EmailTasks SET Status = @Status WHERE TaskID = @Id",
+            "UPDATE dbo.emailtaskconfig SET Status = @Status WHERE Task_ID = @Id",
             new { Status = status, Id = id });
 
         if (affected == 0)
