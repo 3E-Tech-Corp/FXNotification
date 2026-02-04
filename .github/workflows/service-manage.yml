@@ -1,0 +1,73 @@
+name: Service Manage
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action: status, start, stop, restart'
+        required: true
+        default: 'restart'
+        type: choice
+        options:
+          - status
+          - start
+          - stop
+          - restart
+
+jobs:
+  manage:
+    name: Manage FX_Notify Service
+    runs-on: [self-hosted, windows, iis]
+    steps:
+      - name: Execute action
+        shell: powershell
+        run: |
+          $svc = "FX_Notify"
+          $action = "${{ github.event.inputs.action }}"
+
+          $service = Get-Service -Name $svc -ErrorAction SilentlyContinue
+          if (-not $service) {
+            Write-Host "Service '$svc' not found!"
+            exit 1
+          }
+
+          Write-Host "Current status: $($service.Status)"
+
+          switch ($action) {
+            "status" {
+              Write-Host "Service: $($service.DisplayName)"
+              Write-Host "Status: $($service.Status)"
+              Write-Host "StartType: $($service.StartType)"
+            }
+            "stop" {
+              if ($service.Status -eq "Running") {
+                Stop-Service -Name $svc -Force
+                $service.WaitForStatus("Stopped", [TimeSpan]::FromSeconds(30))
+                Write-Host "Service stopped"
+              } else {
+                Write-Host "Service is not running"
+              }
+            }
+            "start" {
+              if ($service.Status -ne "Running") {
+                Start-Service -Name $svc
+                $service.WaitForStatus("Running", [TimeSpan]::FromSeconds(30))
+                Write-Host "Service started"
+              } else {
+                Write-Host "Service is already running"
+              }
+            }
+            "restart" {
+              if ($service.Status -eq "Running") {
+                Restart-Service -Name $svc -Force
+                Write-Host "Service restarted"
+              } else {
+                Start-Service -Name $svc
+                $service.WaitForStatus("Running", [TimeSpan]::FromSeconds(30))
+                Write-Host "Service started (was stopped)"
+              }
+            }
+          }
+
+          $service = Get-Service -Name $svc
+          Write-Host "Final status: $($service.Status)"
