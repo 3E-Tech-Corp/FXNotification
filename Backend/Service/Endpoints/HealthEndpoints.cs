@@ -39,19 +39,20 @@ public static class HealthEndpoints
             await conn.OpenAsync();
             health.DatabaseConnected = true;
 
+            // Status values: 0=Draft, 10=Pending, 99=Failed, 100=Sent
             health.PendingCount = await conn.ExecuteScalarAsync<int>(
-                "SELECT COUNT(*) FROM dbo.EmailOutbox WHERE Status = 'Pending'");
+                "SELECT COUNT(*) FROM dbo.EmailOutbox WHERE Status = 10");
 
             health.FailedCount = await conn.ExecuteScalarAsync<int>(
-                "SELECT COUNT(*) FROM dbo.EmailOutbox WHERE Status = 'Failed'");
+                "SELECT COUNT(*) FROM dbo.EmailOutbox WHERE Status = 99");
 
             health.QueueDepth = health.PendingCount;
 
             health.SentLast24h = await conn.ExecuteScalarAsync<int>(
-                "SELECT COUNT(*) FROM dbo.EmailOutbox WHERE Status = 'Sent' AND SentAt >= DATEADD(HOUR, -24, GETUTCDATE())");
+                "SELECT COUNT(*) FROM dbo.EmailOutbox WHERE Status = 100 AND SentAt >= DATEADD(HOUR, -24, GETUTCDATE())");
 
             health.FailedLast24h = await conn.ExecuteScalarAsync<int>(
-                "SELECT COUNT(*) FROM dbo.EmailOutbox WHERE Status = 'Failed' AND CreatedAt >= DATEADD(HOUR, -24, GETUTCDATE())");
+                "SELECT COUNT(*) FROM dbo.EmailOutbox WHERE Status = 99 AND CreatedAt >= DATEADD(HOUR, -24, GETUTCDATE())");
         }
         catch
         {
@@ -73,11 +74,12 @@ public static class HealthEndpoints
             await conn.OpenAsync();
 
             // Hourly stats for last 24 hours
+            // Status values: 0=Draft, 10=Pending, 99=Failed, 100=Sent
             var hourly = await conn.QueryAsync<HourlyStat>(@"
                 SELECT
                     FORMAT(DATEADD(HOUR, DATEDIFF(HOUR, 0, SentAt), 0), 'yyyy-MM-ddTHH:mm') AS [Hour],
-                    SUM(CASE WHEN Status = 'Sent' THEN 1 ELSE 0 END) AS Sent,
-                    SUM(CASE WHEN Status = 'Failed' THEN 1 ELSE 0 END) AS Failed
+                    SUM(CASE WHEN Status = 100 THEN 1 ELSE 0 END) AS Sent,
+                    SUM(CASE WHEN Status = 99 THEN 1 ELSE 0 END) AS Failed
                 FROM dbo.EmailOutbox
                 WHERE CreatedAt >= DATEADD(HOUR, -24, GETUTCDATE())
                 GROUP BY DATEADD(HOUR, DATEDIFF(HOUR, 0, SentAt), 0)
@@ -89,9 +91,9 @@ public static class HealthEndpoints
             var tasks = await conn.QueryAsync<TaskBreakdown>(@"
                 SELECT
                     TaskCode,
-                    SUM(CASE WHEN Status = 'Sent' THEN 1 ELSE 0 END) AS Sent,
-                    SUM(CASE WHEN Status = 'Failed' THEN 1 ELSE 0 END) AS Failed,
-                    SUM(CASE WHEN Status = 'Pending' THEN 1 ELSE 0 END) AS Pending
+                    SUM(CASE WHEN Status = 100 THEN 1 ELSE 0 END) AS Sent,
+                    SUM(CASE WHEN Status = 99 THEN 1 ELSE 0 END) AS Failed,
+                    SUM(CASE WHEN Status = 10 THEN 1 ELSE 0 END) AS Pending
                 FROM dbo.EmailOutbox
                 WHERE CreatedAt >= DATEADD(HOUR, -24, GETUTCDATE())
                 GROUP BY TaskCode

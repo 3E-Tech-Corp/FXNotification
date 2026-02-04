@@ -108,8 +108,8 @@ public static class OutboxEndpoints
 
         var affected = await conn.ExecuteAsync(
             @"UPDATE dbo.EmailOutbox
-              SET Status = 'Pending', Attempts = 0, ErrorMessage = NULL, NextRetryAt = NULL
-              WHERE Id = @Id AND Status = 'Failed'",
+              SET Status = 10, Attempts = 0, ErrorMessage = NULL, NextRetryAt = NULL
+              WHERE Id = @Id AND Status = 99",
             new { Id = id });
 
         if (affected == 0)
