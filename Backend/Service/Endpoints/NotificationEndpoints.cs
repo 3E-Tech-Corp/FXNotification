@@ -288,8 +288,13 @@ public static class NotificationEndpoints
                 }
             }
 
+            // Release: set Status = 10 so the worker picks it up
+            await conn.ExecuteAsync(
+                "EXEC dbo.EmailOutbox_Release @Id",
+                new { Id = newId });
+
             return Results.Ok(ApiResponse<QueueNotificationResponse>.Ok(
-                new QueueNotificationResponse { NotificationId = newId, Message = "Queued successfully" }));
+                new QueueNotificationResponse { NotificationId = newId, Message = "Queued and released for sending" }));
         }
         catch (Exception ex)
         {
@@ -344,6 +349,11 @@ public static class NotificationEndpoints
                         n.Priority,
                         n.WebhookUrl
                     });
+
+                // Release: set Status = 10 so the worker picks it up
+                await conn.ExecuteAsync(
+                    "EXEC dbo.EmailOutbox_Release @Id",
+                    new { Id = newId });
 
                 results.Add(new QueueNotificationResponse { NotificationId = newId, Message = "Queued" });
             }
