@@ -36,17 +36,40 @@ public static class TaskEndpoints
     private static bool IsMasterKey(HttpContext context)
         => context.Items.TryGetValue("IsMasterKey", out var val) && val is true;
 
-    private static async Task<IResult> ListTasks(IDbConnectionFactory db)
+    private static async Task<IResult> ListTasks(HttpContext httpContext, IDbConnectionFactory db)
     {
         using var conn = db.CreateConnection();
         await conn.OpenAsync();
 
-        var tasks = (await conn.QueryAsync<TaskConfig>(
-            @"SELECT Task_ID AS TaskID, TaskCode, Status, MailPriority, ProfileID, TemplateID, TemplateCode,
-                     TaskType, TestMailTo, MailFromName, MailFrom, MailTo, MailCC, MailBCC,
-                     MainProcName, LineProcName, AttachmentProcName, LangCode
-              FROM dbo.emailtaskconfig
-              ORDER BY Task_ID")).ToList();
+        // If caller is an app key (not master), scope tasks to linked profiles via AppProfiles
+        var isMaster = httpContext.Items.TryGetValue("IsMasterKey", out var mk) && mk is true;
+        var appRecord = httpContext.Items.TryGetValue("ApiKey", out var akObj) ? akObj as ApiKeyRecord : null;
+
+        List<TaskConfig> tasks;
+
+        if (!isMaster && appRecord is not null)
+        {
+            // Only return tasks whose ProfileID is linked to this app
+            tasks = (await conn.QueryAsync<TaskConfig>(
+                @"SELECT t.Task_ID AS TaskID, t.TaskCode, t.Status, t.MailPriority, t.ProfileID, t.TemplateID, t.TemplateCode,
+                         t.TaskType, t.TestMailTo, t.MailFromName, t.MailFrom, t.MailTo, t.MailCC, t.MailBCC,
+                         t.MainProcName, t.LineProcName, t.AttachmentProcName, t.LangCode
+                  FROM dbo.emailtaskconfig t
+                  INNER JOIN dbo.AppProfiles ap ON t.ProfileID = ap.ProfileId
+                  WHERE ap.AppId = @AppId
+                  ORDER BY t.Task_ID",
+                new { AppId = appRecord.AppId })).ToList();
+        }
+        else
+        {
+            // Master key: return all tasks
+            tasks = (await conn.QueryAsync<TaskConfig>(
+                @"SELECT Task_ID AS TaskID, TaskCode, Status, MailPriority, ProfileID, TemplateID, TemplateCode,
+                         TaskType, TestMailTo, MailFromName, MailFrom, MailTo, MailCC, MailBCC,
+                         MainProcName, LineProcName, AttachmentProcName, LangCode
+                  FROM dbo.emailtaskconfig
+                  ORDER BY Task_ID")).ToList();
+        }
 
         return Results.Ok(ApiResponse<List<TaskConfig>>.Ok(tasks));
     }
