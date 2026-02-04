@@ -12,7 +12,8 @@ IF OBJECT_ID('dbo.EmailOutbox_Queue', 'P') IS NOT NULL
 GO
 
 CREATE PROCEDURE dbo.EmailOutbox_Queue
-    @TaskCode       NVARCHAR(100),
+    @TaskId         INT             = NULL,
+    @TaskCode       NVARCHAR(100)   = NULL,
     @To             NVARCHAR(MAX),
     @Cc             NVARCHAR(MAX)   = NULL,
     @Bcc            NVARCHAR(MAX)   = NULL,
@@ -26,15 +27,17 @@ AS
 BEGIN
     SET NOCOUNT ON;
 
-    -- Resolve TaskCode to Task_ID
-    DECLARE @TaskId INT;
-    SELECT @TaskId = Task_ID
-    FROM dbo.emailtaskconfig
-    WHERE TaskCode = @TaskCode;
+    -- Resolve: prefer TaskId, fall back to TaskCode
+    IF @TaskId IS NULL AND @TaskCode IS NOT NULL
+    BEGIN
+        SELECT @TaskId = Task_ID
+        FROM dbo.emailtaskconfig
+        WHERE TaskCode = @TaskCode;
+    END
 
     IF @TaskId IS NULL
     BEGIN
-        RAISERROR('Task code ''%s'' not found.', 16, 1, @TaskCode);
+        RAISERROR('Task not found. Provide a valid TaskId or TaskCode.', 16, 1);
         RETURN;
     END
 

@@ -91,7 +91,8 @@ public class AppResponse
 
 public class QueueNotificationRequest
 {
-    public string TaskCode { get; set; } = "";
+    public int? TaskId { get; set; }
+    public string? TaskCode { get; set; }
     public string To { get; set; } = "";
     public string? Cc { get; set; }
     public string? Bcc { get; set; }

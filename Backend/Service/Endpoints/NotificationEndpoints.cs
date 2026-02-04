@@ -221,28 +221,32 @@ public static class NotificationEndpoints
         [FromBody] QueueNotificationRequest req,
         IDbConnectionFactory db)
     {
-        if (string.IsNullOrWhiteSpace(req.TaskCode))
-            return Results.BadRequest(ApiResponse.Fail("taskCode is required."));
+        if (!req.TaskId.HasValue && string.IsNullOrWhiteSpace(req.TaskCode))
+            return Results.BadRequest(ApiResponse.Fail("taskId or taskCode is required."));
         if (string.IsNullOrWhiteSpace(req.To))
             return Results.BadRequest(ApiResponse.Fail("to is required."));
 
-        // Check per-app task restrictions
-        var taskAuthResult = CheckTaskAuthorization(context, req.TaskCode);
-        if (taskAuthResult is not null)
-            return taskAuthResult;
+        // Check per-app task restrictions (if TaskCode provided)
+        if (!string.IsNullOrWhiteSpace(req.TaskCode))
+        {
+            var taskAuthResult = CheckTaskAuthorization(context, req.TaskCode);
+            if (taskAuthResult is not null)
+                return taskAuthResult;
+        }
 
         try
         {
             using var conn = db.CreateConnection();
             await conn.OpenAsync();
 
-            // Queue via stored procedure
+            // Queue via stored procedure — supports both TaskId and TaskCode
             var newId = await conn.QuerySingleAsync<long>(
                 @"EXEC dbo.EmailOutbox_Queue
-                    @TaskCode, @To, @Cc, @Bcc, @ObjectId,
+                    @TaskId, @TaskCode, @To, @Cc, @Bcc, @ObjectId,
                     @BodyJson, @DetailJson, @LangCode, @Priority, @WebhookUrl",
                 new
                 {
+                    req.TaskId,
                     req.TaskCode,
                     To = req.To,
                     Cc = req.Cc,
