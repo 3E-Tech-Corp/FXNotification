@@ -1,8 +1,12 @@
 /*
  * 009 — Stored procedure: Queue a notification into EmailOutbox
  *
- * Looks up Task_ID from TaskCode in emailtaskconfig, then inserts into EmailOutbox.
- * Returns the new Id.
+ * Matches ACTUAL production EmailOutbox schema:
+ *   Id, TaskId, ObjectId, ToList, CcList, BccList, Subject,
+ *   BodyJson, DetailJson, Attempts, NextAttemptAt, Status,
+ *   LastError, CreatedAt, SentAt
+ *
+ * Status: 0=Draft, 10=Pending, 99=Failed, 100=Sent
  */
 USE [fxEmail];
 GO
@@ -41,22 +45,11 @@ BEGIN
         RETURN;
     END
 
-    -- Insert into outbox with Pending status (0)
-    INSERT INTO dbo.EmailOutbox (TaskId, ObjectId, ToList, CcList, BccList, Subject, BodyJson, DetailJson, Attempts, NextAttemptAt, Status, CreatedAt)
-    VALUES (
-        @TaskId,
-        @ObjectId,
-        @To,
-        @Cc,
-        @Bcc,
-        NULL,           -- Subject filled by template engine at send time
-        @BodyJson,
-        @DetailJson,
-        0,              -- Attempts
-        GETUTCDATE(),   -- NextAttemptAt = immediately
-        0,              -- Status = Pending
-        GETUTCDATE()    -- CreatedAt
-    );
+    -- Insert into outbox with Status=0 (draft, not yet released)
+    INSERT INTO dbo.EmailOutbox
+        (TaskId, ObjectId, ToList, CcList, BccList, BodyJson, DetailJson, Attempts, NextAttemptAt, Status, CreatedAt)
+    VALUES
+        (@TaskId, @ObjectId, @To, @Cc, @Bcc, @BodyJson, @DetailJson, 0, GETUTCDATE(), 0, GETUTCDATE());
 
     SELECT SCOPE_IDENTITY() AS Id;
 END;

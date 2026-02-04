@@ -19,8 +19,8 @@ BEGIN
 
     -- Only release items that are in queued/draft state (Status = 0)
     UPDATE dbo.EmailOutbox
-    SET Status      = 10,
-        NextRetryAt = GETUTCDATE()
+    SET Status        = 10,
+        NextAttemptAt = GETUTCDATE()
     WHERE Id = @Id
       AND Status = 0;
 
