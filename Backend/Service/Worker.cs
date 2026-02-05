@@ -165,16 +165,27 @@ namespace FXEmailWorker
                               "exec dbo.MailProfile_Get @Id",
                               new { id = cfg.ProfileID });
 
-                            if (m.ObjectId is null)
-                                throw new InvalidOperationException($"Email {m.Id}: missing ObjectId.");
-
                             // 2) best-match template
                             var tpl = await LoadTemplateAsync(conn, cfg.TemplateID, m.LangCode ?? cfg.LangCode, profile.ProfileId);
                             if (tpl is null || string.IsNullOrWhiteSpace(tpl.Subject) || string.IsNullOrWhiteSpace(tpl.Body))
                                 throw new InvalidOperationException($"Template {cfg.TemplateCode} not found/empty.");
 
-                            // 3) run procs → model
-                            var model = Utility.BuildScribanModel(m.BodyJson, m.DetailJson);
+                            // 3) build model — from JSON (API-queued) or stored procedures (legacy)
+                            Dictionary<string, object?> model;
+                            if (!string.IsNullOrWhiteSpace(m.BodyJson))
+                            {
+                                // API path: model comes from BodyJson/DetailJson passed by the calling app
+                                model = Utility.BuildScribanModel(m.BodyJson, m.DetailJson);
+                            }
+                            else if (m.ObjectId is not null)
+                            {
+                                // Legacy path: model built from stored procedures using ObjectId
+                                model = await BuildModelFromProcsAsync(conn, cfg, m.ObjectId.Value);
+                            }
+                            else
+                            {
+                                throw new InvalidOperationException($"Email {m.Id}: no BodyJson and no ObjectId — nothing to render.");
+                            }
 
                             // 4) render
                             var (subj, html) = Utility.RenderWithScriban(tpl.Subject!, tpl.Body!, model);
@@ -210,7 +221,7 @@ namespace FXEmailWorker
                               "exec dbo.EmailAttachments_GetAll   @Id",
                               new { id = m.Id })).ToList();
 
-                            if (cfg.AttachmentProcName is not null)
+                            if (cfg.AttachmentProcName is not null && m.ObjectId is not null)
                             {
                                 var taskAtts = await LoadTaskAttachmentsAsync(conn, cfg, m.ObjectId.Value);
                                 atts.AddRange(taskAtts);
