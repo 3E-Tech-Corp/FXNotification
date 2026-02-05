@@ -99,6 +99,25 @@ static class Utility
         return (subjTpl.Render(ctx), bodyTpl.Render(ctx));
     }
 
+    public static ScriptObject DictToScriptObject(Dictionary<string, object?> dict)
+    {
+        var so = new ScriptObject();
+        foreach (var kv in dict)
+        {
+            if (kv.Value is Dictionary<string, object?> nested)
+                so[kv.Key] = DictToScriptObject(nested);
+            else if (kv.Value is List<Dictionary<string, object?>> list)
+            {
+                var arr = new ScriptArray();
+                foreach (var item in list) arr.Add(DictToScriptObject(item));
+                so[kv.Key] = arr;
+            }
+            else
+                so[kv.Key] = kv.Value;
+        }
+        return so;
+    }
+
     public static string MergeAddress(string? ItemAddress, string TaskAddress)
     {
         if (TaskAddress.StartsWith("+"))

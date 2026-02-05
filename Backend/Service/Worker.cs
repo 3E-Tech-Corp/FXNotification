@@ -8,6 +8,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Scriban.Runtime;
 using Microsoft.Extensions.Options;
 using MimeKit;
 using System.Data;
@@ -171,7 +172,7 @@ namespace FXEmailWorker
                                 throw new InvalidOperationException($"Template {cfg.TemplateCode} not found/empty.");
 
                             // 3) build model — from JSON (API-queued) or stored procedures (legacy)
-                            Dictionary<string, object?> model;
+                            ScriptObject model;
                             if (!string.IsNullOrWhiteSpace(m.BodyJson))
                             {
                                 // API path: model comes from BodyJson/DetailJson passed by the calling app
@@ -180,7 +181,8 @@ namespace FXEmailWorker
                             else if (m.ObjectId is not null)
                             {
                                 // Legacy path: model built from stored procedures using ObjectId
-                                model = await BuildModelFromProcsAsync(conn, cfg, m.ObjectId.Value);
+                                var dict = await BuildModelFromProcsAsync(conn, cfg, m.ObjectId.Value);
+                                model = Utility.DictToScriptObject(dict);
                             }
                             else
                             {
