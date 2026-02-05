@@ -17,19 +17,19 @@ AS
 BEGIN
     SET NOCOUNT ON;
 
-    -- Only release items that are in draft state (Status = 'Draft')
+    -- Only release items that are in draft state (Status = 0)
     UPDATE dbo.EmailOutbox
-    SET Status      = 'Pending',
-        NextRetryAt = GETDATE()
+    SET Status        = 10,
+        NextAttemptAt = GETDATE()
     WHERE Id = @Id
-      AND Status = 'Draft';
+      AND Status = 0;
 
     IF @@ROWCOUNT = 0
     BEGIN
         IF NOT EXISTS (SELECT 1 FROM dbo.EmailOutbox WHERE Id = @Id)
             RAISERROR('EmailOutbox entry %I64d not found.', 16, 1, @Id);
         ELSE
-            RAISERROR('EmailOutbox entry %I64d is not in draft state.', 16, 1, @Id);
+            RAISERROR('EmailOutbox entry %I64d is not in draft state (Status 0).', 16, 1, @Id);
         RETURN;
     END
 

@@ -45,11 +45,11 @@ BEGIN
         RETURN;
     END
 
-    -- Insert into outbox with Status='Draft' (not yet released)
+    -- Insert into outbox with Status=0 (draft, not yet released)
     INSERT INTO dbo.EmailOutbox
-        (TaskId, ObjectId, ToList, CcList, BccList, BodyJson, DetailJson, Attempts, NextRetryAt, Status, CreatedAt)
+        (TaskId, ObjectId, ToList, CcList, BccList, BodyJson, DetailJson, Attempts, NextAttemptAt, Status, CreatedAt)
     VALUES
-        (@TaskId, @ObjectId, @To, @Cc, @Bcc, @BodyJson, @DetailJson, 0, GETDATE(), 'Draft', GETDATE());
+        (@TaskId, @ObjectId, @To, @Cc, @Bcc, @BodyJson, @DetailJson, 0, GETDATE(), 0, GETDATE());
 
     SELECT SCOPE_IDENTITY() AS Id;
 END;
