@@ -209,7 +209,7 @@ BEGIN
         Attempts, Status, WebhookUrl, CreatedAt, SentAt, NextRetryAt, ErrorMessage
     FROM dbo.EmailOutbox WITH (ROWLOCK, READPAST)
     WHERE Status = 'Pending'
-      AND NextRetryAt <= SYSUTCDATETIME()
+      AND ISNULL(NextRetryAt, GETDATE()) <= GETDATE()
     ORDER BY
         CASE MailPriority WHEN 'H' THEN 0 WHEN 'N' THEN 1 WHEN 'L' THEN 2 ELSE 1 END,
         Id;
